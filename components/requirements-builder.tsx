@@ -1,8 +1,13 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { assembleRequirements } from "@/lib/assemble-requirements";
-import { defaultConfig, type ProjectConfig } from "@/lib/config";
+import { configsMatch, defaultConfig, type ProjectConfig } from "@/lib/config";
+import {
+  DOWNLOAD_COUNT_STORAGE_KEY,
+  downloadFilename,
+  parseStoredDownloadCount,
+} from "@/lib/download-filename";
 import {
   API_MODULES,
   APP_TYPE_LABELS,
@@ -29,6 +34,7 @@ import {
   isApiChoiceFixed,
   normalizeSelections,
 } from "@/lib/selection-rules";
+import { UI_TEXT } from "@/lib/ui-text";
 import { hasErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
 
 type TextFieldName = "projectName" | "description" | "businessRequirements" | "acceptanceCriteria" | "stretchGoals";
@@ -43,27 +49,27 @@ type TextFieldSpec = {
 };
 
 const TEXT_FIELDS: TextFieldSpec[] = [
-  { name: "projectName", label: "Project name", required: true, multiline: false, maxLength: INPUT_LIMITS.projectName },
-  { name: "description", label: "Short description (optional)", multiline: true, maxLength: INPUT_LIMITS.description },
+  { name: "projectName", label: UI_TEXT.fields.projectName, required: true, multiline: false, maxLength: INPUT_LIMITS.projectName },
+  { name: "description", label: UI_TEXT.fields.description, multiline: true, maxLength: INPUT_LIMITS.description },
   {
     name: "businessRequirements",
-    label: "Business requirements",
-    hint: "Inserted into the document exactly as written.",
+    label: UI_TEXT.fields.businessRequirements,
+    hint: UI_TEXT.fields.businessRequirementsHint,
     required: true,
     multiline: true,
     maxLength: INPUT_LIMITS.longText,
   },
   {
     name: "acceptanceCriteria",
-    label: "Acceptance criteria (optional)",
-    hint: "If left empty, the document lists this as an open question.",
+    label: UI_TEXT.fields.acceptanceCriteria,
+    hint: UI_TEXT.fields.acceptanceCriteriaHint,
     multiline: true,
     maxLength: INPUT_LIMITS.longText,
   },
   {
     name: "stretchGoals",
-    label: "Stretch goals (optional)",
-    hint: "Goals to attempt only after all must-have requirements are verified.",
+    label: UI_TEXT.fields.stretchGoals,
+    hint: UI_TEXT.fields.stretchGoalsHint,
     multiline: true,
     maxLength: INPUT_LIMITS.longText,
   },
@@ -83,9 +89,19 @@ const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
 
 const NON_API_MODULES = OPTIONAL_MODULES.filter((key) => !API_MODULES.includes(key));
 
-const DOWNLOAD_FILENAME = "PROJECT_REQUIREMENTS.md";
-
 type CopyStatus = "idle" | "copied" | "failed";
+
+type AssembledSnapshot = {
+  config: ProjectConfig;
+  markdown: string;
+};
+
+type PendingAction = {
+  kind: "replace" | "restore";
+  config: ProjectConfig;
+  markdown: string;
+  next?: string;
+};
 
 const fieldId = (name: keyof ValidationErrors | keyof ProjectConfig) => `field-${name}`;
 
@@ -146,8 +162,12 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [assemblyError, setAssemblyError] = useState("");
   const [markdown, setMarkdown] = useState("");
+  const [assembled, setAssembled] = useState<AssembledSnapshot | null>(null);
+  const [pending, setPending] = useState<PendingAction | null>(null);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const copyGeneration = useRef(0);
+  const keepEditsRef = useRef<HTMLButtonElement>(null);
+  const downloadCount = useRef(0);
 
   const update = <K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]) =>
     setConfig((current) => ({ ...current, [key]: value }));
@@ -162,6 +182,14 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const updateCoverage = (patch: Partial<ProjectConfig["coverage"]>) =>
     setConfig((current) => ({ ...current, coverage: { ...current.coverage, ...patch } }));
 
+  function applyAssembly(nextConfig: ProjectConfig, nextMarkdown: string) {
+    setMarkdown(nextMarkdown);
+    setAssembled({ config: nextConfig, markdown: nextMarkdown });
+    setPending(null);
+    copyGeneration.current += 1;
+    setCopyStatus("idle");
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = validateConfig(config);
@@ -169,17 +197,40 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     setAssemblyError("");
 
     if (hasErrors(nextErrors)) {
+      setPending(null);
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
       if (firstInvalid) document.getElementById(fieldId(firstInvalid))?.focus();
       return;
     }
 
+    let next: string;
     try {
-      setMarkdown(assembleRequirements(config, templates));
+      next = assembleRequirements(config, templates);
+    } catch (error) {
+      setPending(null);
+      setAssemblyError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    if (assembled && markdown !== assembled.markdown && next !== markdown) {
+      setPending({ kind: "replace", config, markdown, next });
+      return;
+    }
+
+    applyAssembly(config, next);
+  }
+
+  function confirmPending() {
+    if (!activePending) return;
+    if (activePending.kind === "replace" && activePending.next !== undefined) {
+      applyAssembly(activePending.config, activePending.next);
+      return;
+    }
+    if (activePending.kind === "restore" && assembled) {
+      setMarkdown(assembled.markdown);
+      setPending(null);
       copyGeneration.current += 1;
       setCopyStatus("idle");
-    } catch (error) {
-      setAssemblyError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -198,30 +249,75 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     }
   }
 
+  function loadDownloadCount(): number {
+    try {
+      return parseStoredDownloadCount(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY));
+    } catch {
+      return downloadCount.current;
+    }
+  }
+
+  function storeDownloadCount(count: number) {
+    downloadCount.current = count;
+    try {
+      sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, String(count));
+    } catch {
+      // The in-memory count remains the fallback for this page view.
+    }
+  }
+
   function downloadMarkdown() {
     if (!markdown) return;
+    const count = loadDownloadCount();
     const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = DOWNLOAD_FILENAME;
+    link.download = downloadFilename(count);
     document.body.appendChild(link);
-    link.click();
+    try {
+      link.click();
+    } catch {
+      link.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
     link.remove();
     // Revoke on the next turn so the browser can start the download first.
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    storeDownloadCount(count + 1);
   }
 
   const runtimes = allowedRuntimes(config);
   const backendFrameworks = allowedBackendFrameworks(config);
   const packageManager = DEFAULT_PACKAGE_MANAGERS[config.language];
   const hasDocument = markdown.length > 0;
+  const edited = assembled !== null && markdown !== assembled.markdown;
+  const stale = assembled !== null && !configsMatch(config, assembled.config);
+  const activePending =
+    pending && configsMatch(config, pending.config) && markdown === pending.markdown ? pending : null;
+  const canRestore = edited;
+
+  useEffect(() => {
+    if (!edited) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // An empty value asks the browser for its generic leave prompt, not a custom message.
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [edited]);
+
+  useEffect(() => {
+    if (activePending) keepEditsRef.current?.focus();
+  }, [activePending]);
 
   return (
     <div className="layout">
       <section className="configuration" aria-labelledby="configuration-heading">
-        <h2 id="configuration-heading">Configuration</h2>
-        <form onSubmit={handleSubmit} noValidate aria-label="Project configuration">
+        <h2 id="configuration-heading">{UI_TEXT.configurationHeading}</h2>
+        <form onSubmit={handleSubmit} noValidate aria-label={UI_TEXT.configurationFormLabel}>
         {TEXT_FIELDS.map((field) => {
           const id = fieldId(field.name);
           const error = errors[field.name];
@@ -254,7 +350,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         })}
 
         <fieldset>
-          <legend>Mode</legend>
+          <legend>{UI_TEXT.legends.mode}</legend>
           {MODES.map((mode) => (
             <div className="field" key={mode}>
               <label>
@@ -276,10 +372,10 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         </fieldset>
 
         <fieldset>
-          <legend>Technology</legend>
+          <legend>{UI_TEXT.legends.technology}</legend>
           <SelectField
             name="appType"
-            label="Application type"
+            label={UI_TEXT.fields.applicationType}
             value={config.appType}
             options={APP_TYPES}
             labels={APP_TYPE_LABELS}
@@ -287,22 +383,21 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           />
           <SelectField
             name="language"
-            label="Primary language"
+            label={UI_TEXT.fields.primaryLanguage}
             value={config.language}
             options={LANGUAGES}
             labels={LANGUAGE_LABELS}
             hint={
               packageManager
-                ? `Package manager: ${packageManager} (fixed default; selection is not yet supported).`
-                : "No language conventions are included for Other."
+                ? UI_TEXT.hints.packageManager(packageManager)
+                : UI_TEXT.hints.noLanguageConventions
             }
             onChange={(language) => updateSelection({ language })}
           />
 
           {isApiChoiceFixed(config) ? (
             <p className="hint">
-              {APP_TYPE_LABELS[config.appType]} projects {config.exposesApi ? "always include" : "do not include"} an
-              HTTP API.
+              {UI_TEXT.hints.fixedHttpApi(APP_TYPE_LABELS[config.appType], config.exposesApi)}
             </p>
           ) : (
             <div className="field">
@@ -315,7 +410,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
                   aria-describedby={describedBy(errors.exposesApi && `${fieldId("exposesApi")}-error`)}
                   onChange={(event) => updateSelection({ exposesApi: event.target.checked })}
                 />{" "}
-                Includes an HTTP API
+                {UI_TEXT.fields.includesHttpApi}
               </label>
               <ErrorText name="exposesApi" error={errors.exposesApi} />
             </div>
@@ -324,7 +419,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           {runtimes.length > 1 && (
             <SelectField
               name="runtime"
-              label="Runtime"
+              label={UI_TEXT.fields.runtime}
               value={config.runtime}
               options={runtimes}
               labels={RUNTIME_LABELS}
@@ -335,7 +430,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           {backendFrameworks.length > 1 && (
             <SelectField
               name="backendFramework"
-              label="Backend framework"
+              label={UI_TEXT.fields.backendFramework}
               value={config.backendFramework}
               options={backendFrameworks}
               labels={BACKEND_FRAMEWORK_LABELS}
@@ -346,7 +441,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           {config.appType === "web-app" && (
             <SelectField
               name="frontend"
-              label="Frontend framework"
+              label={UI_TEXT.fields.frontendFramework}
               value={config.frontend}
               options={allowedFrontends(config)}
               labels={FRONTEND_LABELS}
@@ -362,7 +457,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             tabIndex={-1}
             aria-describedby={describedBy(errors.modules && `${fieldId("modules")}-error`)}
           >
-            <legend>API documentation</legend>
+            <legend>{UI_TEXT.legends.apiDocumentation}</legend>
             {API_MODULES.map((key) => (
               <div className="field" key={key}>
                 <label>
@@ -380,8 +475,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         )}
 
         <fieldset>
-          <legend>Testing and quality</legend>
-          <p className="hint">Unit tests and local build verification are always included.</p>
+          <legend>{UI_TEXT.legends.testing}</legend>
+          <p className="hint">{UI_TEXT.hints.testingAlwaysIncluded}</p>
           {NON_API_MODULES.map((key) => (
             <div className="field" key={key}>
               <label>
@@ -402,13 +497,13 @@ export default function RequirementsBuilder({ templates }: { templates: Template
                 checked={config.coverage.enabled}
                 onChange={(event) => updateCoverage({ enabled: event.target.checked })}
               />{" "}
-              Code coverage targets
+              {UI_TEXT.fields.codeCoverage}
             </label>
           </div>
           {config.coverage.enabled && (
             <>
               <div className="field">
-                <label htmlFor={fieldId("linePercent")}>Line coverage target (%)</label>
+                <label htmlFor={fieldId("linePercent")}>{UI_TEXT.fields.lineCoverage}</label>
                 <input
                   type="number"
                   id={fieldId("linePercent")}
@@ -423,7 +518,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
                 <ErrorText name="linePercent" error={errors.linePercent} />
               </div>
               <div className="field">
-                <label htmlFor={fieldId("branchPercent")}>Branch coverage target (%)</label>
+                <label htmlFor={fieldId("branchPercent")}>{UI_TEXT.fields.branchCoverage}</label>
                 <input
                   type="number"
                   id={fieldId("branchPercent")}
@@ -441,41 +536,97 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           )}
         </fieldset>
 
-        <button type="submit">Assemble Draft</button>
+        <button type="submit">{assembled ? UI_TEXT.buttons.reassemble : UI_TEXT.buttons.assembleDraft}</button>
         {assemblyError && (
           <p role="alert" className="error">
-            Assembly failed: {assemblyError}
+            {UI_TEXT.assemblyFailed(assemblyError)}
           </p>
         )}
         </form>
       </section>
 
       <section className="output" aria-labelledby="preview-heading">
-        <h2 id="preview-heading">Preview</h2>
+        <h2 id="preview-heading">{UI_TEXT.previewHeading}</h2>
         <p id="preview-note" className="hint">
-          Read-only. Change the configuration and select Assemble Draft to update this document.
+          {UI_TEXT.hints.preview}
         </p>
+        {stale && (
+          <p id="stale-notice" role="status" className="notice">
+            {UI_TEXT.notices.stale}
+          </p>
+        )}
+        {edited && (
+          <p id="edited-notice" role="status" className="notice">
+            {UI_TEXT.notices.edited}
+          </p>
+        )}
         <div className="actions">
           <button type="button" className="secondary" onClick={copyMarkdown} disabled={!hasDocument}>
-            Copy Markdown
+            {UI_TEXT.buttons.copyMarkdown}
           </button>
           <button type="button" className="secondary" onClick={downloadMarkdown} disabled={!hasDocument}>
-            Download Markdown
+            {UI_TEXT.buttons.downloadMarkdown}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (!canRestore) return;
+              setPending({ kind: "restore", config, markdown });
+            }}
+            disabled={!canRestore}
+          >
+            {UI_TEXT.buttons.restoreGeneratedDraft}
           </button>
         </div>
-        {copyStatus === "copied" && <p role="status" className="status">Copied the assembled Markdown.</p>}
+        {copyStatus === "copied" && <p role="status" className="status">{UI_TEXT.copy.success}</p>}
         {copyStatus === "failed" && (
-          <p role="alert" className="error">Could not copy the Markdown. Select the preview and copy it manually.</p>
+          <p role="alert" className="error">{UI_TEXT.copy.failure}</p>
+        )}
+        {activePending && (
+          <div
+            className="confirm"
+            role="region"
+            aria-labelledby="confirm-heading"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setPending(null);
+              }
+            }}
+          >
+            <h3 id="confirm-heading">
+              {activePending.kind === "replace" ? UI_TEXT.confirm.replaceHeading : UI_TEXT.confirm.restoreHeading}
+            </h3>
+            <p>
+              {activePending.kind === "replace" ? UI_TEXT.confirm.replaceBody : UI_TEXT.confirm.restoreBody}
+            </p>
+            {activePending.kind === "restore" && stale && <p>{UI_TEXT.confirm.restoreStale}</p>}
+            <div className="actions">
+              <button type="button" className="secondary" ref={keepEditsRef} onClick={() => setPending(null)}>
+                {UI_TEXT.buttons.keepEdits}
+              </button>
+              <button type="button" onClick={confirmPending}>
+                {activePending.kind === "replace" ? UI_TEXT.buttons.replaceEdits : UI_TEXT.buttons.restoreDraft}
+              </button>
+            </div>
+          </div>
         )}
         <div className="field">
-          <label htmlFor="markdown-preview">Assembled Markdown</label>
+          <label htmlFor="markdown-preview">{UI_TEXT.fields.markdownDocument}</label>
           <textarea
             id="markdown-preview"
             className="preview"
-            readOnly
+            readOnly={assembled === null}
             value={markdown}
-            placeholder="Complete the form and select Assemble Draft."
-            aria-describedby="preview-note"
+            placeholder={UI_TEXT.placeholder.markdown}
+            aria-describedby={describedBy("preview-note", stale && "stale-notice", edited && "edited-notice")}
+            onChange={(event) => {
+              if (!assembled) return;
+              setMarkdown(event.target.value);
+              copyGeneration.current += 1;
+              setCopyStatus("idle");
+            }}
           />
         </div>
       </section>

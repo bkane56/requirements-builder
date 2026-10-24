@@ -2,7 +2,7 @@
 
 Assembles a deterministic `PROJECT_REQUIREMENTS.md` from user-entered business requirements and reusable Markdown modules. No AI, database, or network access is needed to generate a document.
 
-See [requirements.md](requirements.md) for the full product requirements. This repository implements Stage 1. No environment variables are required.
+See [requirements.md](requirements.md) for the full product requirements. This repository implements Stage 1 and the Stage 2A editing workflow. No environment variables are required.
 
 ## Prerequisites
 
@@ -36,10 +36,10 @@ To add a module, create its Markdown file under `templates/` and add an entry to
 
 All tests run with Vitest (`yarn test`). The UI tests use React Testing Library with `happy-dom`, selected per file by the `// @vitest-environment happy-dom` comment; all other tests run in Node. `happy-dom` was chosen over jsdom because current jsdom requires Node `^22.22.2 || ^24.15.0`, which is narrower than this project's supported range.
 
-- `tests/assembly.test.ts`, `tests/validation.test.ts`, `tests/selection-rules.test.ts`: unit tests for the pure logic in `lib/`.
+- `tests/assembly.test.ts`, `tests/validation.test.ts`, `tests/selection-rules.test.ts`, `tests/config.test.ts`, `tests/download-filename.test.ts`: unit tests for the pure logic in `lib/`.
 - `tests/golden.test.ts`: compares the assembled document for each golden configuration with its approved document, character for character.
 - `tests/templates.test.ts`: template integrity. Every registered file exists, every template file is registered, module IDs are unique, versions and sections are valid, templates use only supported placeholders and no `#`, `##`, or `###` headings (those levels belong to the assembled document). It also enforces the requirements.md rule against em dashes and emojis in `app/`, `components/`, `lib/`, and `templates/`. User-entered text is exempt and is preserved verbatim.
-- `tests/requirements-builder.test.tsx`: UI behavior, including conditional controls, compatibility resets, validation messages and focus, separate coverage-field errors, assembly, copy, download, and the assembly error alert.
+- `tests/requirements-builder.test.tsx`: UI behavior, including conditional controls, compatibility resets, validation messages and focus, separate coverage-field errors, assembly, editing, stale and edited notices, reassembly confirmation, restore, copy, download, and the assembly error alert.
 
 `yarn test:coverage` enforces at least 85% line and 80% branch coverage over `lib/` and `components/`. `app/layout.tsx` and `app/page.tsx` are excluded as framework scaffolding; template loading through the page is verified by `yarn build`.
 
@@ -64,29 +64,35 @@ To add a case, add a configuration JSON (it must pass validation and must alread
 1. Start the app with `yarn dev`, or with `yarn build` and `yarn start`.
 2. Enter a project name and the business requirements. Both are required. Optional description, acceptance criteria, and stretch goals are inserted verbatim when provided.
 3. Choose Fast or Project mode, then the application type, language, and any technology options the form shows. Dependent choices reset when a parent choice changes.
-4. Select Assemble Draft. The preview stays empty until this succeeds, and it does not update itself while you edit. Fix any field errors and select Assemble Draft again. Focus moves to the first invalid field.
-5. Copy or download the preview. Both actions stay disabled until a document has been assembled.
+4. Select Assemble Draft. The preview stays empty until this succeeds. Fix any field errors and select Assemble Draft again. Focus moves to the first invalid field. After a document exists, the same button is labeled Reassemble.
+5. Edit the Markdown document directly if you want. Those edits stay in the document until you confirm a replacement. Changing the form does not change the document by itself. A notice says when the form no longer matches the last assembly, and a separate notice says when the document has manual edits. Changing a value back removes the matching notice.
+6. Copy or download the current document. Both actions stay disabled while the document is empty. They use the text in the document, including manual edits.
 
-Copy Markdown writes the preview string to the clipboard unchanged, including spaces, line endings, and any `{{placeholders}}` you typed. A success message confirms it. If the browser clipboard API is missing or rejects the write, the page shows an error and leaves the text in the preview so it can be selected manually. Copy works in a secure context such as `localhost`.
+Copy Markdown writes that text to the clipboard unchanged, including spaces, line endings, and any `{{placeholders}}`. A success message confirms it. If the browser clipboard API is missing or rejects the write, the page shows an error and leaves the text in the document so it can be selected manually. Copy works in a secure context such as `localhost`.
 
-Download Markdown saves that same string as `PROJECT_REQUIREMENTS.md`. The file is built in the browser from a UTF-8 Blob and a temporary object URL, which is revoked after the download starts. There is no server download route. The assembler ends the document with one newline, and the download keeps it.
+Download Markdown saves that same string. The first download in a browser tab is `PROJECT_REQUIREMENTS.md`, the next is `PROJECT_REQUIREMENTS (1).md`, and later downloads continue in order. The tab remembers the next number in session storage, including after a refresh. The file is built in the browser from a UTF-8 Blob and a temporary object URL, which is revoked after the download starts. The number advances only after the browser has been asked to start the download. Starting a download does not mean the file was saved. A name can still match a file left from an earlier browser session. If session storage is unavailable, numbering continues for the current page view and starts again when the page is opened again. There is no server download route. The assembler ends a generated document with one newline, and a download keeps the current text as shown.
 
-## Current status (Stage 1)
+Reassemble replaces the document from the current form. If the document has manual edits that would be lost, the page asks you to keep or replace them. Keep edits, or Escape, leaves the document as it is. Restore generated draft is available only when the document differs from the last successful assembly. It asks before putting that assembly back. Restoring does not apply later form changes, so the stale notice can remain.
 
-Implemented: project inputs, Fast/Project mode, application type, language, Node.js runtime, backend framework, frontend framework (Web App only), HTTP API inclusion, Swagger/OpenAPI and Postman (only with an HTTP API), optional testing/data/security modules, configurable coverage targets, Fast Mode architecture and complexity constraints, compatibility validation, deterministic assembly, read-only Markdown preview, copy, and download.
+The browser may show its generic leave prompt while the document has manual edits. That prompt is best-effort and does not save the document.
+
+## Current status (Stage 2A)
+
+Implemented: project inputs, Fast/Project mode, application type, language, Node.js runtime, backend framework, frontend framework (Web App only), HTTP API inclusion, Swagger/OpenAPI and Postman (only with an HTTP API), optional testing/data/security modules, configurable coverage targets, Fast Mode architecture and complexity constraints, compatibility validation, deterministic assembly, an editable Markdown document, stale and edited notices, confirmed reassembly and restore, copy, and download.
 
 Package managers are fixed per language (Maven for Java, uv for Python, Yarn for TypeScript and JavaScript) and are not selectable.
 
-### Stage 1 limitations
+### Limitations
 
-- The preview is read-only and updates only when Assemble Draft succeeds. A failed attempt leaves the previous document in place.
+- The document updates from the form only when assembly succeeds. A failed attempt leaves the current document in place. Manual edits are not written back into the form.
 - Copy uses the browser clipboard API. When that API is unavailable, the assembled text stays in the preview for manual selection.
-- Download always uses the filename `PROJECT_REQUIREMENTS.md`.
+- Download names are remembered only for the current browser tab. They can still match a file saved in an earlier session, and starting a download does not confirm that the file was saved.
 - Templates are read at build time. Editing a template requires another build before `yarn start` serves it.
 - Line and branch coverage are whole-number targets from 0 to 100. They are guidance in the generated document, not a test run.
 
 ### Deferred to later stages
 
-- Stage 2: configuration JSON import/export, editable Markdown, and further usability work beyond this stage.
+- Stage 2B: configuration JSON import/export.
+- Stage 2C: further integration polish.
 - Stage 3: optional AI review.
 - Stage 4: Fast Mode presets, one-click reset, and demo polish.

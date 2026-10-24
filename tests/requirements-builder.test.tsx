@@ -11,10 +11,10 @@ const templates = loadTemplates();
 const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement & HTMLSelectElement;
 const maybeField = (label: string) => screen.queryByLabelText(label);
 const optionValues = (label: string) => [...field(label).options].map((option) => option.value);
-const preview = () => (screen.getByLabelText("Assembled Markdown") as HTMLTextAreaElement).value;
+const preview = () => (screen.getByLabelText("Markdown document") as HTMLTextAreaElement).value;
 
 const change = (label: string, value: string) => fireEvent.change(field(label), { target: { value } });
-const assemble = () => fireEvent.click(screen.getByRole("button", { name: "Assemble Draft" }));
+const assemble = () => fireEvent.click(screen.getByRole("button", { name: /^(Assemble Draft|Reassemble)$/ }));
 
 function fillRequired(businessRequirements = "Users can upload a receipt.") {
   change("Project name", "Receipt Tracker");
@@ -22,10 +22,14 @@ function fillRequired(businessRequirements = "Users can upload a receipt.") {
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
   render(<RequirementsBuilder templates={templates} />);
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("conditional controls", () => {
   it("shows only the controls that apply to the default configuration", () => {
@@ -281,7 +285,7 @@ describe("copy and download", () => {
     expect(assembled).toContain(typed);
     fireEvent.click(copyButton());
 
-    expect(await screen.findByRole("status")).toHaveProperty("textContent", "Copied the assembled Markdown.");
+    expect(await screen.findByRole("status")).toHaveProperty("textContent", "Copied the current Markdown.");
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(assembled);
     expect(preview()).toBe(assembled);
@@ -368,5 +372,333 @@ describe("assembly failure", () => {
     assemble();
     expect(screen.getByRole("alert").textContent).toBe('Assembly failed: Missing template for module "business-core".');
     expect(preview()).toBe("");
+  });
+});
+
+const STALE_NOTICE = "The configuration has changed since this document was assembled.";
+const EDITED_NOTICE = "This document includes manual edits.";
+
+const documentField = () => screen.getByLabelText("Markdown document") as HTMLTextAreaElement;
+const editDocument = (value: string) => fireEvent.change(documentField(), { target: { value } });
+const namedButton = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
+
+describe("editable document and stale preview", () => {
+  it("keeps restore unavailable until the document differs from the last assembly", () => {
+    expect(namedButton("Restore generated draft").disabled).toBe(true);
+    fillRequired();
+    assemble();
+    expect(documentField().readOnly).toBe(false);
+    expect(namedButton("Restore generated draft").disabled).toBe(true);
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+    expect(screen.queryByText(EDITED_NOTICE)).toBeNull();
+  });
+
+  it("preserves typed Markdown exactly and clears the edited notice when the generated text returns", () => {
+    fillRequired();
+    assemble();
+    const generated = preview();
+    const typed = `${generated}  {{lineCoverage}}\n`;
+
+    editDocument(typed);
+    expect(preview()).toBe(typed);
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+    expect(namedButton("Restore generated draft").disabled).toBe(false);
+
+    editDocument(generated);
+    expect(screen.queryByText(EDITED_NOTICE)).toBeNull();
+    expect(namedButton("Restore generated draft").disabled).toBe(true);
+  });
+
+  it("marks a configuration change as stale without treating it as an edit, and clears that when reverted", () => {
+    fillRequired();
+    assemble();
+    fireEvent.change(field("Application type"), { target: { value: "other" } });
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+
+    change("Project name", "Receipt Tracker 2");
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(EDITED_NOTICE)).toBeNull();
+
+    change("Project name", "Receipt Tracker");
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+  });
+
+  it("reassembles a stale document immediately when it has no manual edits", () => {
+    fillRequired();
+    assemble();
+    const generated = preview();
+    change("Project name", "Receipt Tracker 2");
+    assemble();
+
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+    expect(preview()).not.toBe(generated);
+    expect(preview()).toContain("Receipt Tracker 2");
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+  });
+
+  it("reassembles without a prompt when the document is already the generated text", () => {
+    fillRequired();
+    assemble();
+    const generated = preview();
+    assemble();
+    expect(preview()).toBe(generated);
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+  });
+
+  it("asks before replacing manual edits and keeps them when cancelled", () => {
+    fillRequired();
+    assemble();
+    const generated = preview();
+    const edited = `${generated}\nmanual note`;
+    editDocument(edited);
+    assemble();
+
+    expect(preview()).toBe(edited);
+    expect(screen.getByRole("heading", { name: "Replace manual edits?" })).toBeTruthy();
+    expect(document.activeElement).toBe(namedButton("Keep edits"));
+
+    fireEvent.click(namedButton("Keep edits"));
+    expect(preview()).toBe(edited);
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+  });
+
+  it("cancels replacement when Escape is pressed", () => {
+    fillRequired();
+    assemble();
+    const edited = `${preview()}\nmanual note`;
+    editDocument(edited);
+    assemble();
+    fireEvent.keyDown(namedButton("Keep edits"), { key: "Escape" });
+    expect(preview()).toBe(edited);
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+  });
+
+  it("replaces manual edits only after confirmation", () => {
+    fillRequired();
+    assemble();
+    const generated = preview();
+    editDocument(`${generated}\nmanual note`);
+    assemble();
+    fireEvent.click(namedButton("Replace edits"));
+
+    expect(preview()).toBe(generated);
+    expect(screen.queryByText(EDITED_NOTICE)).toBeNull();
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+    expect(namedButton("Restore generated draft").disabled).toBe(true);
+  });
+
+  it("drops the replacement prompt when the configuration or document changes", () => {
+    fillRequired();
+    assemble();
+    const edited = `${preview()}\nmanual note`;
+    editDocument(edited);
+    assemble();
+    expect(screen.getByRole("heading", { name: "Replace manual edits?" })).toBeTruthy();
+
+    change("Project name", "Receipt Tracker 2");
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+    expect(preview()).toBe(edited);
+
+    change("Project name", "Receipt Tracker");
+    assemble();
+    expect(screen.getByRole("heading", { name: "Replace manual edits?" })).toBeTruthy();
+    editDocument(`${edited} more`);
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+  });
+
+  it("blocks an invalid reassembly and keeps the edited document", () => {
+    fillRequired();
+    assemble();
+    const edited = `${preview()}\nmanual note`;
+    editDocument(edited);
+    change("Project name", "   ");
+    assemble();
+
+    expect(screen.getByText("Project name is required.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+    expect(preview()).toBe(edited);
+    expect(document.activeElement).toBe(field("Project name"));
+  });
+
+  it("keeps manual edits when assembly fails", () => {
+    cleanup();
+    const view = render(<RequirementsBuilder templates={templates} />);
+    fillRequired();
+    assemble();
+    const edited = `${preview()}\nmanual note`;
+    editDocument(edited);
+
+    const incomplete = { ...templates };
+    delete incomplete["business-core"];
+    view.rerender(<RequirementsBuilder templates={incomplete} />);
+    assemble();
+
+    expect(screen.getByRole("alert").textContent).toBe('Assembly failed: Missing template for module "business-core".');
+    expect(preview()).toBe(edited);
+    expect(screen.queryByRole("heading", { name: "Replace manual edits?" })).toBeNull();
+  });
+
+  it("restores the last generated draft and leaves a stale configuration marked", () => {
+    fillRequired();
+    assemble();
+    const generated = preview();
+    change("Project name", "Receipt Tracker 2");
+    editDocument(`${generated}\nmanual note`);
+    fireEvent.click(namedButton("Restore generated draft"));
+
+    expect(screen.getByRole("heading", { name: "Restore the generated draft?" })).toBeTruthy();
+    expect(screen.getByText("The restored draft matches the last assembly, not the current configuration.")).toBeTruthy();
+    expect(document.activeElement).toBe(namedButton("Keep edits"));
+
+    fireEvent.click(namedButton("Keep edits"));
+    expect(preview()).toBe(`${generated}\nmanual note`);
+
+    fireEvent.click(namedButton("Restore generated draft"));
+    fireEvent.click(namedButton("Restore draft"));
+    expect(preview()).toBe(generated);
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(EDITED_NOTICE)).toBeNull();
+    expect(namedButton("Restore generated draft").disabled).toBe(true);
+  });
+
+  it("copies and downloads the edited document", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    fillRequired();
+    assemble();
+    const edited = `${preview()}\nmanual note  \n{{lineCoverage}}`;
+    editDocument(edited);
+    change("Project name", "Receipt Tracker 2");
+
+    fireEvent.click(namedButton("Copy Markdown"));
+    expect(await screen.findByText("Copied the current Markdown.")).toBeTruthy();
+    expect(writeText).toHaveBeenCalledWith(edited);
+
+    let blob: Blob | undefined;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      blob = value as Blob;
+      return "blob:preview";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(namedButton("Download Markdown"));
+    expect(await blob?.text()).toBe(edited);
+
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    vi.restoreAllMocks();
+  });
+
+  it("disables copy and download when the edited document is empty", () => {
+    fillRequired();
+    assemble();
+    editDocument("");
+    expect(namedButton("Copy Markdown").disabled).toBe(true);
+    expect(namedButton("Download Markdown").disabled).toBe(true);
+    expect(namedButton("Restore generated draft").disabled).toBe(false);
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+  });
+
+  it("names downloads sequentially, keeps the count after remount, and leaves the counter unchanged when the download does not start", async () => {
+    fillRequired("Users can upload a receipt.\n");
+    assemble();
+    const edited = `${preview()}manual note  \n`;
+    editDocument(edited);
+
+    const clicks: HTMLAnchorElement[] = [];
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      blobs.push(value as Blob);
+      return "blob:preview";
+    });
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push(this);
+    });
+
+    fireEvent.click(namedButton("Download Markdown"));
+    click.mockImplementationOnce(() => {
+      throw new Error("download blocked");
+    });
+    fireEvent.click(namedButton("Download Markdown"));
+    fireEvent.click(namedButton("Download Markdown"));
+
+    expect(clicks.map((anchor) => anchor.download)).toEqual([
+      "PROJECT_REQUIREMENTS.md",
+      "PROJECT_REQUIREMENTS (1).md",
+    ]);
+    expect(await blobs[0].text()).toBe(edited);
+    expect(await blobs[1].text()).toBe(edited);
+    expect(edited.endsWith("\n")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(revoke).toHaveBeenCalledWith("blob:preview");
+
+    cleanup();
+    render(<RequirementsBuilder templates={templates} />);
+    fillRequired("Users can upload a receipt.\n");
+    assemble();
+    fireEvent.click(namedButton("Download Markdown"));
+    expect(clicks.at(-1)?.download).toBe("PROJECT_REQUIREMENTS (2).md");
+    vi.restoreAllMocks();
+  });
+
+  it("keeps numbering in memory when session storage is unavailable", () => {
+    const sessionStorageDescriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage blocked");
+      },
+    });
+    const clicks: HTMLAnchorElement[] = [];
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push(this);
+    });
+
+    try {
+      fillRequired();
+      assemble();
+      fireEvent.click(namedButton("Download Markdown"));
+      fireEvent.click(namedButton("Download Markdown"));
+      expect(clicks.map((anchor) => anchor.download)).toEqual([
+        "PROJECT_REQUIREMENTS.md",
+        "PROJECT_REQUIREMENTS (1).md",
+      ]);
+
+      cleanup();
+      render(<RequirementsBuilder templates={templates} />);
+      fillRequired();
+      assemble();
+      fireEvent.click(namedButton("Download Markdown"));
+      expect(clicks.at(-1)?.download).toBe("PROJECT_REQUIREMENTS.md");
+    } finally {
+      if (sessionStorageDescriptor) Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("asks the browser to confirm leaving only while the document has manual edits", () => {
+    const leaving = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    fillRequired();
+    assemble();
+    expect(leaving()).toBe(false);
+
+    change("Project name", "Receipt Tracker 2");
+    expect(leaving()).toBe(false);
+
+    const generated = preview();
+    editDocument(`${generated}\nmanual note`);
+    expect(leaving()).toBe(true);
+
+    editDocument(generated);
+    expect(leaving()).toBe(false);
   });
 });
