@@ -24,6 +24,8 @@ yarn dev     # development server
 
 ## How it works
 
+The path from page render through assembly, editing, copy, and download is in [docs/EXECUTION_FLOW.md](docs/EXECUTION_FLOW.md).
+
 - `templates/` holds the Markdown module content. `lib/module-registry.ts` holds each module's metadata (ID, version, target section, and when it applies).
 - `app/page.tsx` reads the templates with `fs.readFileSync` while rendering. The route exports `ensureStatic = "navigation"`, so it is prerendered at build time and the build fails if it ever becomes dynamic. `yarn start` therefore does not read `templates/` at runtime; rebuild after editing a template.
 - `lib/selection-rules.ts` defines which runtime, backend framework, and frontend choices apply to the current selections, and resets dependent choices when a parent choice changes. The UI and the validator both use it.
