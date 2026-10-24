@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { assembleRequirements } from "@/lib/assemble-requirements";
 import { defaultConfig, type ProjectConfig } from "@/lib/config";
 import {
@@ -70,25 +70,30 @@ const TEXT_FIELDS: TextFieldSpec[] = [
 ];
 
 // Document order, used to move focus to the first invalid control.
-const ERROR_FOCUS_ORDER: (keyof ProjectConfig)[] = [
+const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
   ...TEXT_FIELDS.map((field) => field.name),
   "exposesApi",
   "runtime",
   "backendFramework",
   "frontend",
   "modules",
-  "coverage",
+  "linePercent",
+  "branchPercent",
 ];
 
 const NON_API_MODULES = OPTIONAL_MODULES.filter((key) => !API_MODULES.includes(key));
 
-const fieldId = (name: keyof ProjectConfig) => `field-${name}`;
+const DOWNLOAD_FILENAME = "PROJECT_REQUIREMENTS.md";
+
+type CopyStatus = "idle" | "copied" | "failed";
+
+const fieldId = (name: keyof ValidationErrors | keyof ProjectConfig) => `field-${name}`;
 
 function describedBy(...ids: (string | false | undefined)[]) {
   return ids.filter(Boolean).join(" ") || undefined;
 }
 
-function ErrorText({ name, error }: { name: keyof ProjectConfig; error?: string }) {
+function ErrorText({ name, error }: { name: keyof ValidationErrors; error?: string }) {
   return error ? (
     <span id={`${fieldId(name)}-error`} className="error">
       {error}
@@ -97,7 +102,7 @@ function ErrorText({ name, error }: { name: keyof ProjectConfig; error?: string 
 }
 
 type SelectFieldProps<T extends string> = {
-  name: keyof ProjectConfig;
+  name: Exclude<keyof ProjectConfig, "coverage">;
   label: string;
   value: T;
   options: readonly T[];
@@ -141,6 +146,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [assemblyError, setAssemblyError] = useState("");
   const [markdown, setMarkdown] = useState("");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const copyGeneration = useRef(0);
 
   const update = <K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]) =>
     setConfig((current) => ({ ...current, [key]: value }));
@@ -169,18 +176,52 @@ export default function RequirementsBuilder({ templates }: { templates: Template
 
     try {
       setMarkdown(assembleRequirements(config, templates));
+      copyGeneration.current += 1;
+      setCopyStatus("idle");
     } catch (error) {
       setAssemblyError(error instanceof Error ? error.message : String(error));
     }
   }
 
+  async function copyMarkdown() {
+    if (!markdown) return;
+    const text = markdown;
+    const generation = copyGeneration.current;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API is unavailable.");
+      }
+      await navigator.clipboard.writeText(text);
+      if (copyGeneration.current === generation) setCopyStatus("copied");
+    } catch {
+      if (copyGeneration.current === generation) setCopyStatus("failed");
+    }
+  }
+
+  function downloadMarkdown() {
+    if (!markdown) return;
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = DOWNLOAD_FILENAME;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Revoke on the next turn so the browser can start the download first.
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   const runtimes = allowedRuntimes(config);
   const backendFrameworks = allowedBackendFrameworks(config);
   const packageManager = DEFAULT_PACKAGE_MANAGERS[config.language];
+  const hasDocument = markdown.length > 0;
 
   return (
     <div className="layout">
-      <form onSubmit={handleSubmit} noValidate aria-label="Project configuration">
+      <section className="configuration" aria-labelledby="configuration-heading">
+        <h2 id="configuration-heading">Configuration</h2>
+        <form onSubmit={handleSubmit} noValidate aria-label="Project configuration">
         {TEXT_FIELDS.map((field) => {
           const id = fieldId(field.name);
           const error = errors[field.name];
@@ -367,34 +408,35 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           {config.coverage.enabled && (
             <>
               <div className="field">
-                <label htmlFor={fieldId("coverage")}>Line coverage target (%)</label>
+                <label htmlFor={fieldId("linePercent")}>Line coverage target (%)</label>
                 <input
                   type="number"
-                  id={fieldId("coverage")}
+                  id={fieldId("linePercent")}
                   min={0}
                   max={100}
                   step={1}
                   value={Number.isNaN(config.coverage.linePercent) ? "" : config.coverage.linePercent}
-                  aria-invalid={errors.coverage ? true : undefined}
-                  aria-describedby={describedBy(errors.coverage && `${fieldId("coverage")}-error`)}
+                  aria-invalid={errors.linePercent ? true : undefined}
+                  aria-describedby={describedBy(errors.linePercent && `${fieldId("linePercent")}-error`)}
                   onChange={(event) => updateCoverage({ linePercent: event.target.valueAsNumber })}
                 />
+                <ErrorText name="linePercent" error={errors.linePercent} />
               </div>
               <div className="field">
-                <label htmlFor="field-coverage-branch">Branch coverage target (%)</label>
+                <label htmlFor={fieldId("branchPercent")}>Branch coverage target (%)</label>
                 <input
                   type="number"
-                  id="field-coverage-branch"
+                  id={fieldId("branchPercent")}
                   min={0}
                   max={100}
                   step={1}
                   value={Number.isNaN(config.coverage.branchPercent) ? "" : config.coverage.branchPercent}
-                  aria-invalid={errors.coverage ? true : undefined}
-                  aria-describedby={describedBy(errors.coverage && `${fieldId("coverage")}-error`)}
+                  aria-invalid={errors.branchPercent ? true : undefined}
+                  aria-describedby={describedBy(errors.branchPercent && `${fieldId("branchPercent")}-error`)}
                   onChange={(event) => updateCoverage({ branchPercent: event.target.valueAsNumber })}
                 />
+                <ErrorText name="branchPercent" error={errors.branchPercent} />
               </div>
-              <ErrorText name="coverage" error={errors.coverage} />
             </>
           )}
         </fieldset>
@@ -405,18 +447,37 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             Assembly failed: {assemblyError}
           </p>
         )}
-      </form>
+        </form>
+      </section>
 
-      <section aria-labelledby="preview-heading">
+      <section className="output" aria-labelledby="preview-heading">
         <h2 id="preview-heading">Preview</h2>
-        <label htmlFor="markdown-preview">Assembled Markdown</label>
-        <textarea
-          id="markdown-preview"
-          className="preview"
-          readOnly
-          value={markdown}
-          placeholder="Complete the form and select Assemble Draft."
-        />
+        <p id="preview-note" className="hint">
+          Read-only. Change the configuration and select Assemble Draft to update this document.
+        </p>
+        <div className="actions">
+          <button type="button" className="secondary" onClick={copyMarkdown} disabled={!hasDocument}>
+            Copy Markdown
+          </button>
+          <button type="button" className="secondary" onClick={downloadMarkdown} disabled={!hasDocument}>
+            Download Markdown
+          </button>
+        </div>
+        {copyStatus === "copied" && <p role="status" className="status">Copied the assembled Markdown.</p>}
+        {copyStatus === "failed" && (
+          <p role="alert" className="error">Could not copy the Markdown. Select the preview and copy it manually.</p>
+        )}
+        <div className="field">
+          <label htmlFor="markdown-preview">Assembled Markdown</label>
+          <textarea
+            id="markdown-preview"
+            className="preview"
+            readOnly
+            value={markdown}
+            placeholder="Complete the form and select Assemble Draft."
+            aria-describedby="preview-note"
+          />
+        </div>
       </section>
     </div>
   );

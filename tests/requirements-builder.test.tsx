@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder from "../components/requirements-builder";
 import { loadTemplates } from "../lib/load-templates";
 
@@ -158,26 +158,47 @@ describe("validation", () => {
     expect(screen.getByText("Business requirements are required.")).toBeTruthy();
   });
 
-  it("rejects an out-of-range coverage target, focuses it, and recovers once corrected", () => {
+  it("marks only the invalid coverage target, focuses it, and recovers once corrected", () => {
     fillRequired();
     change("Line coverage target (%)", "150");
     assemble();
 
-    expect(screen.getByText("Coverage targets must be whole numbers from 0 to 100.")).toBeTruthy();
-    expect(document.activeElement).toBe(field("Line coverage target (%)"));
+    const line = field("Line coverage target (%)");
+    const branch = field("Branch coverage target (%)");
+    expect(screen.getByText("Line coverage target must be a whole number from 0 to 100.")).toBeTruthy();
+    expect(screen.queryByText("Branch coverage target must be a whole number from 0 to 100.")).toBeNull();
+    expect(line.getAttribute("aria-invalid")).toBe("true");
+    expect(line.getAttribute("aria-describedby")).toBe("field-linePercent-error");
+    expect(branch.getAttribute("aria-invalid")).toBeNull();
+    expect(branch.getAttribute("aria-describedby")).toBeNull();
+    expect(document.activeElement).toBe(line);
     expect(preview()).toBe("");
 
     change("Line coverage target (%)", "90");
-    assemble();
-    expect(screen.queryByText("Coverage targets must be whole numbers from 0 to 100.")).toBeNull();
-    expect(preview()).toContain("at least 90% line coverage and 80% branch coverage");
-  });
-
-  it("rejects an empty coverage target", () => {
-    fillRequired();
     change("Branch coverage target (%)", "");
     assemble();
-    expect(screen.getByText("Coverage targets must be whole numbers from 0 to 100.")).toBeTruthy();
+    expect(field("Line coverage target (%)").getAttribute("aria-invalid")).toBeNull();
+    expect(field("Branch coverage target (%)").getAttribute("aria-invalid")).toBe("true");
+    expect(field("Branch coverage target (%)").getAttribute("aria-describedby")).toBe("field-branchPercent-error");
+    expect(document.activeElement).toBe(field("Branch coverage target (%)"));
+    expect(screen.getByText("Branch coverage target must be a whole number from 0 to 100.")).toBeTruthy();
+    expect(preview()).toBe("");
+
+    change("Branch coverage target (%)", "70");
+    assemble();
+    expect(screen.queryByText("Line coverage target must be a whole number from 0 to 100.")).toBeNull();
+    expect(screen.queryByText("Branch coverage target must be a whole number from 0 to 100.")).toBeNull();
+    expect(preview()).toContain("at least 90% line coverage and 70% branch coverage");
+  });
+
+  it("focuses the line target when both coverage targets are invalid", () => {
+    fillRequired();
+    change("Line coverage target (%)", "1.5");
+    change("Branch coverage target (%)", "101");
+    assemble();
+    expect(field("Line coverage target (%)").getAttribute("aria-invalid")).toBe("true");
+    expect(field("Branch coverage target (%)").getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field("Line coverage target (%)"));
     expect(preview()).toBe("");
   });
 });
@@ -220,6 +241,119 @@ describe("assembly", () => {
     assemble();
     expect(preview()).toContain("`project-delivery`");
     expect(preview()).not.toContain("`fast-delivery`");
+  });
+});
+
+describe("copy and download", () => {
+  const typed = "  {{lineCoverage}} stays\nline two  \n\u2014 \u{1F680}\n";
+  const copyButton = () => screen.getByRole("button", { name: "Copy Markdown" }) as HTMLButtonElement;
+  const downloadButton = () => screen.getByRole("button", { name: "Download Markdown" }) as HTMLButtonElement;
+
+  function setClipboard(writeText: ((text: string) => Promise<void>) | undefined) {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: writeText ? { writeText } : undefined,
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  });
+
+  it("keeps copy and download unavailable until a document is assembled", () => {
+    expect(copyButton().disabled).toBe(true);
+    expect(downloadButton().disabled).toBe(true);
+    assemble();
+    expect(copyButton().disabled).toBe(true);
+    expect(downloadButton().disabled).toBe(true);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("copies the preview exactly and reports success", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setClipboard(writeText);
+    fillRequired(typed);
+    assemble();
+    const assembled = preview();
+
+    expect(assembled.endsWith("\n")).toBe(true);
+    expect(assembled).toContain(typed);
+    fireEvent.click(copyButton());
+
+    expect(await screen.findByRole("status")).toHaveProperty("textContent", "Copied the assembled Markdown.");
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(assembled);
+    expect(preview()).toBe(assembled);
+  });
+
+  it("reports a clipboard failure and leaves the preview unchanged", async () => {
+    setClipboard(vi.fn().mockRejectedValue(new Error("denied")));
+    fillRequired(typed);
+    assemble();
+    const assembled = preview();
+
+    fireEvent.click(copyButton());
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Could not copy the Markdown. Select the preview and copy it manually.",
+    );
+    expect(preview()).toBe(assembled);
+    expect(copyButton().disabled).toBe(false);
+  });
+
+  it("reports a failure when the clipboard API is missing", async () => {
+    setClipboard(undefined);
+    fillRequired(typed);
+    assemble();
+    fireEvent.click(copyButton());
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Could not copy the Markdown. Select the preview and copy it manually.",
+    );
+  });
+
+  it("clears copy feedback when the document is assembled again", async () => {
+    setClipboard(vi.fn().mockResolvedValue(undefined));
+    fillRequired(typed);
+    assemble();
+    fireEvent.click(copyButton());
+    expect(await screen.findByRole("status")).toBeTruthy();
+
+    change("Project name", "Receipt Tracker 2");
+    assemble();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("downloads the exact preview as PROJECT_REQUIREMENTS.md and revokes the object URL", async () => {
+    fillRequired(typed);
+    assemble();
+    const assembled = preview();
+    let blob: Blob | undefined;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      blob = value as Blob;
+      return "blob:preview";
+    });
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clicks: HTMLAnchorElement[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push(this);
+    });
+
+    fireEvent.click(downloadButton());
+
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0].download).toBe("PROJECT_REQUIREMENTS.md");
+    expect(clicks[0].href).toContain("blob:preview");
+    expect(document.body.contains(clicks[0])).toBe(false);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob?.type).toBe("text/markdown;charset=utf-8");
+    expect(await blob?.text()).toBe(assembled);
+    expect(assembled.endsWith("\n")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(revoke).toHaveBeenCalledWith("blob:preview");
+    expect(preview()).toBe(assembled);
   });
 });
 

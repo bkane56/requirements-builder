@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { INPUT_LIMITS } from "../lib/constants";
-import { hasErrors, validateConfig } from "../lib/validate-config";
+import { hasErrors, validateConfig, type ValidationErrors } from "../lib/validate-config";
 
 const valid: ProjectConfig = {
   ...defaultConfig,
@@ -67,17 +67,29 @@ describe("validateConfig", () => {
     [{ appType: "rest-api", exposesApi: false }, "exposesApi", "REST API projects must include an HTTP API."],
     [{ appType: "cli-library", exposesApi: true }, "exposesApi", "CLI / Library projects cannot include an HTTP API."],
     [{ exposesApi: false, modules: { ...defaultConfig.modules, postman: true } }, "modules", "Swagger/OpenAPI and Postman require an HTTP API."],
-  ] as [Partial<ProjectConfig>, keyof ProjectConfig, string][])(
+  ] as [Partial<ProjectConfig>, keyof ValidationErrors, string][])(
     "rejects incompatible selection %o",
     (overrides, field, message) => {
       expect(validateConfig({ ...valid, ...overrides })[field]).toBe(message);
     },
   );
 
-  it.each([Number.NaN, -1, 101, 85.5])("rejects coverage target %s", (value) => {
-    const message = "Coverage targets must be whole numbers from 0 to 100.";
-    expect(validateConfig({ ...valid, coverage: { enabled: true, linePercent: value, branchPercent: 80 } }).coverage).toBe(message);
-    expect(validateConfig({ ...valid, coverage: { enabled: true, linePercent: 85, branchPercent: value } }).coverage).toBe(message);
+  it.each([Number.NaN, -1, 101, 85.5])("rejects line coverage target %s without flagging branch", (value) => {
+    const errors = validateConfig({ ...valid, coverage: { enabled: true, linePercent: value, branchPercent: 80 } });
+    expect(errors.linePercent).toBe("Line coverage target must be a whole number from 0 to 100.");
+    expect(errors.branchPercent).toBeUndefined();
+  });
+
+  it.each([Number.NaN, -1, 101, 85.5])("rejects branch coverage target %s without flagging line", (value) => {
+    const errors = validateConfig({ ...valid, coverage: { enabled: true, linePercent: 85, branchPercent: value } });
+    expect(errors.branchPercent).toBe("Branch coverage target must be a whole number from 0 to 100.");
+    expect(errors.linePercent).toBeUndefined();
+  });
+
+  it("reports invalid line and branch targets independently", () => {
+    const errors = validateConfig({ ...valid, coverage: { enabled: true, linePercent: -1, branchPercent: 101 } });
+    expect(errors.linePercent).toBe("Line coverage target must be a whole number from 0 to 100.");
+    expect(errors.branchPercent).toBe("Branch coverage target must be a whole number from 0 to 100.");
   });
 
   it("accepts coverage boundaries and ignores targets when coverage is disabled", () => {

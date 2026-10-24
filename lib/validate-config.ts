@@ -2,7 +2,10 @@ import type { ProjectConfig } from "./config";
 import { API_MODULES, APP_TYPE_LABELS, FIXED_API_BY_APP_TYPE, INPUT_LIMITS } from "./constants";
 import { allowedBackendFrameworks, allowedFrontends, allowedRuntimes } from "./selection-rules";
 
-export type ValidationErrors = Partial<Record<keyof ProjectConfig, string>>;
+// Line and branch targets are separate keys so each input can be marked and focused on its own.
+export type ValidationErrors = Partial<
+  Record<Exclude<keyof ProjectConfig, "coverage"> | "linePercent" | "branchPercent", string>
+>;
 
 const isBlank = (value: string) => value.trim().length === 0;
 
@@ -41,8 +44,13 @@ function validateSelections(config: ProjectConfig, errors: ValidationErrors) {
     errors.modules = "Swagger/OpenAPI and Postman require an HTTP API.";
   }
 
-  if (config.coverage.enabled && !(isPercent(config.coverage.linePercent) && isPercent(config.coverage.branchPercent))) {
-    errors.coverage = "Coverage targets must be whole numbers from 0 to 100.";
+  if (config.coverage.enabled) {
+    if (!isPercent(config.coverage.linePercent)) {
+      errors.linePercent = "Line coverage target must be a whole number from 0 to 100.";
+    }
+    if (!isPercent(config.coverage.branchPercent)) {
+      errors.branchPercent = "Branch coverage target must be a whole number from 0 to 100.";
+    }
   }
 }
 
