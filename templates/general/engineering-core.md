@@ -1,0 +1,7 @@
+- Separate presentation, business logic, and data access so business logic can be tested on its own.
+- Validate all external input at system boundaries and return clear, actionable error messages.
+- Place reusable constant values in constants modules organized by responsibility. Do not scatter magic values.
+- Handle expected failures explicitly. Do not silently swallow exceptions; make unexpected failures visible.
+- Never hard-code credentials, secrets, or environment-specific configuration.
+- Deliver incrementally in small, verifiable changes.
+- Prefer clear, maintainable code over clever or compressed code.

@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Requirements Builder
 
-## Getting Started
+Assembles a deterministic `PROJECT_REQUIREMENTS.md` from user-entered business requirements and reusable Markdown modules. No AI, database, or network access is needed to generate a document.
 
-First, run the development server:
+See [requirements.md](requirements.md) for the full product requirements. This repository currently implements Stage 1, Build 1A.
+
+## Prerequisites
+
+- Node.js `^22.12.0 || ^24.0.0 || >=26.0.0` (the binding constraint is Vitest 5; Next.js 16 alone requires `>=20.9.0`). Verified locally on Node 24.14.1.
+- Yarn 1.22 (classic). Do not use npm.
+
+## Commands
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+yarn install
+yarn lint
+yarn typecheck
+yarn test
+yarn test:coverage
+yarn build
+yarn start   # production server on http://localhost:3000
+yarn dev     # development server
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## How it works
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `templates/` holds the Markdown module content. `lib/module-registry.ts` holds each module's metadata (ID, version, target section, and when it applies).
+- `app/page.tsx` reads the templates with `fs.readFileSync` while rendering. The route exports `ensureStatic = "navigation"`, so it is prerendered at build time and the build fails if it ever becomes dynamic. `yarn start` therefore does not read `templates/` at runtime; rebuild after editing a template.
+- `lib/validate-config.ts` checks required fields and input lengths. `lib/assemble-requirements.ts` builds the document as a pure function of the configuration and template text.
+- User-entered text is inserted verbatim. Missing optional inputs are listed as open questions rather than filled in.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To add a module, create its Markdown file under `templates/` and add an entry to `MODULES` in `lib/module-registry.ts`.
 
-## Learn More
+## Current status (Build 1A)
 
-To learn more about Next.js, take a look at the following resources:
+Implemented: project name, description, business requirements, acceptance criteria, stretch goals, Fast/Project mode, deterministic assembly, read-only Markdown preview.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Not yet implemented: technology selections and conditional modules (1B), golden fixtures and coverage thresholds (1C), copy and download (1D), and all Stage 2+ features (editing, JSON import/export, AI review).

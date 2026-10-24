@@ -1,0 +1,6 @@
+- Every must-have functional requirement is implemented and its acceptance criteria are verified.
+- Automated tests have been executed and pass.
+- The production build succeeds and the application starts locally.
+- The README documents installation, configuration, test, build, and run commands.
+- No credentials or other secrets are committed to source control.
+- Known issues and incomplete requirements are listed honestly.

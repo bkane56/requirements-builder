@@ -1,0 +1,5 @@
+- Treat the user-provided requirements in this document as the authoritative statement of business needs.
+- Implement only the behavior described. Do not add features that were not requested.
+- Identify in-scope and out-of-scope behavior explicitly before implementation begins.
+- Express each business rule as testable behavior with a clear expected outcome.
+- Record every assumption and ambiguity under Assumptions and Unresolved Questions, and resolve it with the user before implementing the affected behavior.
