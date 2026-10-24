@@ -1,0 +1,4 @@
+- Define request and response models with Pydantic. Do not return internal objects directly.
+- Keep route handlers thin. Place business logic in plain modules that can be tested without HTTP.
+- Return errors with a consistent shape and correct HTTP status codes.
+- Start locally with `uv run uvicorn` pointing at the application module, and document the exact command in the README.

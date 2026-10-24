@@ -11,6 +11,100 @@ export const MODE_DESCRIPTIONS: Record<Mode, string> = {
   project: "Fuller document that adds architecture, operations, and maintenance sections.",
 };
 
+export const APP_TYPES = ["rest-api", "ai-agent", "web-app", "cli-library", "other"] as const;
+export type AppType = (typeof APP_TYPES)[number];
+
+export const APP_TYPE_LABELS: Record<AppType, string> = {
+  "rest-api": "REST API",
+  "ai-agent": "AI Agent",
+  "web-app": "Web App",
+  "cli-library": "CLI / Library",
+  other: "Other",
+};
+
+// App types whose HTTP API inclusion is fixed; other types let the user choose.
+export const FIXED_API_BY_APP_TYPE: Partial<Record<AppType, boolean>> = {
+  "rest-api": true,
+  "cli-library": false,
+};
+
+export const LANGUAGES = ["java", "python", "typescript", "javascript", "other"] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+export const LANGUAGE_LABELS: Record<Language, string> = {
+  java: "Java",
+  python: "Python",
+  typescript: "TypeScript",
+  javascript: "JavaScript",
+  other: "Other",
+};
+
+export const NODE_LANGUAGES: readonly Language[] = ["typescript", "javascript"];
+
+// Package managers are fixed per language until selectable managers are implemented.
+export const DEFAULT_PACKAGE_MANAGERS: Record<Language, string | null> = {
+  java: "Maven",
+  python: "uv",
+  typescript: "Yarn",
+  javascript: "Yarn",
+  other: null,
+};
+
+export const RUNTIMES = ["none", "nodejs"] as const;
+export type Runtime = (typeof RUNTIMES)[number];
+
+export const RUNTIME_LABELS: Record<Runtime, string> = {
+  none: "None / not applicable",
+  nodejs: "Node.js",
+};
+
+export const BACKEND_FRAMEWORKS = ["none", "spring-boot", "fastapi", "nodejs-api"] as const;
+export type BackendFramework = (typeof BACKEND_FRAMEWORKS)[number];
+
+export const BACKEND_FRAMEWORK_LABELS: Record<BackendFramework, string> = {
+  none: "None",
+  "spring-boot": "Spring Boot",
+  fastapi: "FastAPI",
+  "nodejs-api": "Node.js API (framework-neutral)",
+};
+
+export const FRONTENDS = ["none", "nextjs", "react-vite", "no-preference"] as const;
+export type Frontend = (typeof FRONTENDS)[number];
+
+export const FRONTEND_LABELS: Record<Frontend, string> = {
+  none: "None",
+  nextjs: "Next.js",
+  "react-vite": "React + Vite",
+  "no-preference": "No preference",
+};
+
+export const OPTIONAL_MODULES = [
+  "integrationTests",
+  "goldenDataset",
+  "persistence",
+  "security",
+  "openapi",
+  "postman",
+] as const;
+export type OptionalModule = (typeof OPTIONAL_MODULES)[number];
+
+export const OPTIONAL_MODULE_LABELS: Record<OptionalModule, string> = {
+  integrationTests: "Integration tests",
+  goldenDataset: "Golden dataset (deterministic fixtures and expected outputs)",
+  persistence: "Persistence (database only if requirements warrant it)",
+  security: "Security baseline",
+  openapi: "Swagger / OpenAPI documentation",
+  postman: "Postman collection",
+};
+
+export const API_MODULES: readonly OptionalModule[] = ["openapi", "postman"];
+
+export const COVERAGE_DEFAULTS = {
+  enabled: true,
+  linePercent: 85,
+  branchPercent: 80,
+} as const;
+
 export const INPUT_LIMITS = {
   projectName: 120,
   description: 1000,
@@ -49,6 +143,9 @@ export const OPEN_QUESTIONS = {
   businessRequirements: "What are the business requirements? None were provided.",
   acceptanceCriteria:
     "What are the measurable acceptance criteria for each functional requirement? None were provided.",
+  language:
+    'Which programming language and toolchain should be used? "Other" was selected, so no language conventions are included.',
+  frontend: "Which frontend framework should be used? No preference was selected.",
 } as const;
 
 export const NO_STRETCH_GOALS =

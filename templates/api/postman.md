@@ -1,0 +1,3 @@
+- Provide an importable Postman collection covering every implemented endpoint.
+- Include positive and negative requests with assertions on status codes and response bodies.
+- Use a Postman environment variable for the base URL. Never store credentials or secrets in the collection.

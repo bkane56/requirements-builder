@@ -1,0 +1,4 @@
+- Use modern JavaScript with ES modules.
+- Use Yarn for dependency management and commit `yarn.lock`. Never create `package-lock.json`.
+- Install with `yarn install --frozen-lockfile`. Provide `yarn lint`, `yarn test`, and, where a build step exists, `yarn build` scripts.
+- Validate external data at runtime because there is no compile-time type checking.

@@ -1,3 +1,11 @@
+#### Architecture and Complexity Constraints
+
+- Implement the simplest maintainable solution that satisfies the stated requirements.
+- Do not add speculative abstraction for hypothetical future needs.
+- Do not create unnecessary files, classes, interfaces, factories, wrappers, or service layers.
+- Do not add a dependency unless the platform or standard library cannot reasonably meet the need. Document the reason for each dependency added.
+- Do not add infrastructure such as databases, queues, or additional services unless a stated requirement needs it.
+
 #### Must-have
 
 - Every user-provided functional requirement is must-have unless the user explicitly marks it as a stretch goal.

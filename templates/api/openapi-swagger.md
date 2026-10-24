@@ -1,0 +1,3 @@
+- Document every implemented HTTP endpoint in an OpenAPI specification, including request and response schemas, error responses, and examples.
+- Serve Swagger UI or the specification at a documented local URL.
+- Keep the specification in sync with the implementation; verify it as part of the test suite where practical.

@@ -43,6 +43,48 @@ describe("validateConfig", () => {
     expect(errors).toEqual({});
   });
 
+  it("accepts a compatible full technology configuration", () => {
+    const errors = validateConfig({
+      ...valid,
+      appType: "rest-api",
+      language: "typescript",
+      runtime: "nodejs",
+      backendFramework: "nodejs-api",
+      exposesApi: true,
+      modules: { ...valid.modules, openapi: true, postman: true },
+    });
+    expect(errors).toEqual({});
+  });
+
+  it.each([
+    [{ language: "java", runtime: "nodejs" }, "runtime", "The Node.js runtime requires TypeScript or JavaScript."],
+    [{ language: "python", exposesApi: true, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
+    [{ language: "java", exposesApi: true, backendFramework: "fastapi" }, "backendFramework", "FastAPI requires Python and an HTTP API."],
+    [{ language: "typescript", exposesApi: true, backendFramework: "nodejs-api" }, "backendFramework", "The Node.js API module requires the Node.js runtime and an HTTP API."],
+    [{ language: "java", exposesApi: false, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
+    [{ appType: "cli-library", frontend: "nextjs" }, "frontend", "Frontend frameworks apply only to Web App projects."],
+    [{ appType: "web-app", frontend: "none" }, "frontend", "Choose a frontend option for a Web App."],
+    [{ appType: "rest-api", exposesApi: false }, "exposesApi", "REST API projects must include an HTTP API."],
+    [{ appType: "cli-library", exposesApi: true }, "exposesApi", "CLI / Library projects cannot include an HTTP API."],
+    [{ exposesApi: false, modules: { ...defaultConfig.modules, postman: true } }, "modules", "Swagger/OpenAPI and Postman require an HTTP API."],
+  ] as [Partial<ProjectConfig>, keyof ProjectConfig, string][])(
+    "rejects incompatible selection %o",
+    (overrides, field, message) => {
+      expect(validateConfig({ ...valid, ...overrides })[field]).toBe(message);
+    },
+  );
+
+  it.each([Number.NaN, -1, 101, 85.5])("rejects coverage target %s", (value) => {
+    const message = "Coverage targets must be whole numbers from 0 to 100.";
+    expect(validateConfig({ ...valid, coverage: { enabled: true, linePercent: value, branchPercent: 80 } }).coverage).toBe(message);
+    expect(validateConfig({ ...valid, coverage: { enabled: true, linePercent: 85, branchPercent: value } }).coverage).toBe(message);
+  });
+
+  it("accepts coverage boundaries and ignores targets when coverage is disabled", () => {
+    expect(validateConfig({ ...valid, coverage: { enabled: true, linePercent: 0, branchPercent: 100 } })).toEqual({});
+    expect(validateConfig({ ...valid, coverage: { enabled: false, linePercent: Number.NaN, branchPercent: 101 } })).toEqual({});
+  });
+
   it("rejects every field that exceeds its length limit", () => {
     const errors = validateConfig({
       ...valid,

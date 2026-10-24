@@ -1,0 +1,4 @@
+- Use React with Vite for the browser UI.
+- Keep business logic and API access out of presentational components so they can be unit tested.
+- Meet WCAG 2.2 AA: semantic markup, labeled controls, keyboard operation, visible focus, and clear error messages.
+- Test key user behaviors with Vitest and React Testing Library, asserting outcomes rather than successful renders.

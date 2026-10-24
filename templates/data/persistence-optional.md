@@ -1,0 +1,3 @@
+- Add a database only if the requirements need data to outlive a process. Otherwise use in-memory data or local fixture files.
+- If a database is used, manage schema changes with versioned migrations and document how to create a local instance.
+- Run tests against an isolated database that is reset between runs.

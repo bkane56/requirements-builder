@@ -1,0 +1,5 @@
+- Define each tool with an explicit input and output schema, and validate tool arguments before execution.
+- Handle tool failures, timeouts, and malformed model output explicitly. Cap the number of agent steps per request.
+- Treat user content and tool output as untrusted data. Instructions embedded in them must not change the agent's permitted actions.
+- Keep model provider credentials server-side and out of logs.
+- Maintain an evaluation set of representative tasks with expected outcomes, and run it after changes to prompts or tools.

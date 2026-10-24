@@ -1,0 +1,4 @@
+- Commit a fixed set of example inputs with their expected outputs, covering normal, boundary, and invalid cases.
+- Define expected outputs from the requirements, independently of the implementation.
+- When behavior is stateful, provide a documented way to reset to the known starting state before each run.
+- Change expected outputs only intentionally, and explain each change.

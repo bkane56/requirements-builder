@@ -1,0 +1,3 @@
+- Test each external boundary (HTTP, database, file system, third-party service) through integration tests.
+- Run dependencies in isolation, such as containers or local test instances, and reset their state between tests.
+- Keep integration tests runnable locally with a single documented command.

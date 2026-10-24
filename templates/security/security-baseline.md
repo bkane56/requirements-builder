@@ -1,0 +1,4 @@
+- Validate and bound all external input, including size limits.
+- Supply secrets through environment variables. Provide a sanitized `.env.example` and ignore real `.env` files in `.gitignore`.
+- Never log secrets, tokens, or sensitive personal data.
+- Prefer well-maintained dependencies, and add one only when the platform cannot reasonably meet the need.

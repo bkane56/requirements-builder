@@ -1,0 +1,4 @@
+- Use the Next.js App Router. Default to Server Components; use Client Components only where interactivity requires them.
+- Keep business logic in plain modules outside React components so it can be unit tested.
+- Meet WCAG 2.2 AA: semantic markup, labeled controls, keyboard operation, visible focus, and clear error messages.
+- Test key user behaviors with React Testing Library, asserting outcomes rather than successful renders.

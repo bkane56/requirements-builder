@@ -1,0 +1,4 @@
+- Write behavioral unit tests for business logic, covering success paths, failure paths, boundaries, and empty or missing values.
+- Assert observable outcomes, not implementation details.
+- Keep unit tests deterministic and independent of external services, timing, and shared mutable state.
+- Do not delete, disable, or weaken a valid test to make an implementation pass.

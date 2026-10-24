@@ -1,0 +1,4 @@
+- Run on a supported Node.js LTS version and declare it in the `engines` field of `package.json`.
+- Use `async`/`await` consistently. Handle every rejected promise; never leave a promise floating.
+- Read configuration from environment variables, validate it at startup, and document each variable in `.env.example`.
+- Log errors with enough context to diagnose them. Never log secrets or full request bodies containing personal data.

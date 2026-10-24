@@ -1,0 +1,4 @@
+- Maintain at least {{lineCoverage}}% line coverage and {{branchCoverage}}% branch coverage of functional and business-logic code, enforced by the test runner.
+- Every critical business rule must have explicit behavioral tests for its success and failure paths, even when the coverage targets are already met.
+- Exclude only generated code, configuration, and framework bootstrap code, and list each exclusion with a justification. Excluded code does not count as tested business behavior.
+- Do not write tests solely to raise coverage numbers.

@@ -42,6 +42,8 @@ legend {
 }
 
 input[type="text"],
+input[type="number"],
+select,
 textarea {
   font: inherit;
   padding: 0.5rem;

@@ -1,0 +1,4 @@
+- Use `uv` for Python versions, virtual environments, and dependencies. Do not call `pip` directly.
+- Declare dependencies in `pyproject.toml`, commit `uv.lock`, and pin the Python version in `.python-version`.
+- Install with `uv sync`. Run tests with `uv run pytest`.
+- Add type hints to public functions and check them with a type checker configured in `pyproject.toml`.

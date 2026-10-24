@@ -1,0 +1,4 @@
+- Keep route handlers thin. Place business logic in plain modules that can be tested without HTTP.
+- Validate every request body, query parameter, and path parameter before use.
+- Return errors with a consistent shape and correct HTTP status codes. Do not leak stack traces to clients.
+- Choose the HTTP framework (for example Express or Fastify) based on the requirements and document the reason. Do not add a framework the requirements do not need.

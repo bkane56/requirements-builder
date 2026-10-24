@@ -1,0 +1,3 @@
+- Document the install, build, test, start, and smoke-check commands in the README.
+- Run each documented command successfully before declaring a stage complete.
+- Report actual command results. Do not state that a command or test passed unless it was run.

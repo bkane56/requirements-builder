@@ -1,0 +1,3 @@
+- Use TypeScript with `strict` mode enabled. Avoid `any`; type external data at boundaries.
+- Use Yarn for dependency management and commit `yarn.lock`. Never create `package-lock.json`.
+- Install with `yarn install --frozen-lockfile`. Provide `yarn lint`, `yarn typecheck`, `yarn test`, and `yarn build` scripts.

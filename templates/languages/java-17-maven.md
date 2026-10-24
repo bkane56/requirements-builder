@@ -1,0 +1,5 @@
+- Use Java 17.
+- Use Maven for build and dependency management. Prefer the Maven Wrapper (`./mvnw`) and commit it. Do not introduce Gradle or Ant.
+- Pin plugin and dependency versions in `pom.xml`.
+- Build and test with `./mvnw clean verify`. Run tests alone with `./mvnw test`.
+- Use JUnit 5 for tests.
