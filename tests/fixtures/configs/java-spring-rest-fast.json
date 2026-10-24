@@ -1,0 +1,23 @@
+{
+  "projectName": "Order Service",
+  "description": "Internal service for creating and retrieving customer orders.",
+  "businessRequirements": "- Clients can create an order with one or more line items.\n- Clients can fetch an order by its ID.\n- Unknown order IDs return 404.",
+  "acceptanceCriteria": "- POST /orders with valid items returns 201 and the new order ID.\n- GET /orders/{id} for an unknown ID returns 404.",
+  "stretchGoals": "",
+  "mode": "fast",
+  "appType": "rest-api",
+  "language": "java",
+  "runtime": "none",
+  "backendFramework": "spring-boot",
+  "frontend": "none",
+  "exposesApi": true,
+  "modules": {
+    "integrationTests": true,
+    "goldenDataset": true,
+    "persistence": false,
+    "security": true,
+    "openapi": true,
+    "postman": true
+  },
+  "coverage": { "enabled": true, "linePercent": 85, "branchPercent": 80 }
+}

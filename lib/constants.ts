@@ -105,6 +105,9 @@ export const COVERAGE_DEFAULTS = {
   branchPercent: 80,
 } as const;
 
+export const TEMPLATE_PLACEHOLDERS = ["lineCoverage", "branchCoverage"] as const;
+export type TemplatePlaceholder = (typeof TEMPLATE_PLACEHOLDERS)[number];
+
 export const INPUT_LIMITS = {
   projectName: 120,
   description: 1000,

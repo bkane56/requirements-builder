@@ -1,0 +1,23 @@
+{
+  "projectName": "Inventory API",
+  "description": "",
+  "businessRequirements": "- Warehouse staff can list stock levels per SKU.\n- Stock adjustments must record a reason code.",
+  "acceptanceCriteria": "- GET /stock returns every SKU with its current quantity.\n- An adjustment without a reason code returns 400 with a validation message.",
+  "stretchGoals": "- Low-stock email alerts.",
+  "mode": "project",
+  "appType": "rest-api",
+  "language": "typescript",
+  "runtime": "nodejs",
+  "backendFramework": "nodejs-api",
+  "frontend": "none",
+  "exposesApi": true,
+  "modules": {
+    "integrationTests": true,
+    "goldenDataset": true,
+    "persistence": true,
+    "security": true,
+    "openapi": true,
+    "postman": false
+  },
+  "coverage": { "enabled": true, "linePercent": 90, "branchPercent": 75 }
+}

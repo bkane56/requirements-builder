@@ -1,0 +1,23 @@
+{
+  "projectName": "Support Triage Agent",
+  "description": "",
+  "businessRequirements": "The agent reads an incoming support ticket and assigns a category and priority.\nThe agent may call a knowledge-base search tool.",
+  "acceptanceCriteria": "",
+  "stretchGoals": "Draft a suggested reply for low-priority tickets.",
+  "mode": "fast",
+  "appType": "ai-agent",
+  "language": "python",
+  "runtime": "none",
+  "backendFramework": "none",
+  "frontend": "none",
+  "exposesApi": false,
+  "modules": {
+    "integrationTests": false,
+    "goldenDataset": true,
+    "persistence": false,
+    "security": true,
+    "openapi": false,
+    "postman": false
+  },
+  "coverage": { "enabled": false, "linePercent": 85, "branchPercent": 80 }
+}

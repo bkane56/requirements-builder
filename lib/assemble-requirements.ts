@@ -13,6 +13,7 @@ import {
   SECTIONS,
   USER_CONTENT_HEADING,
   type SectionId,
+  type TemplatePlaceholder,
 } from "./constants";
 import type { Templates } from "./load-templates";
 import { resolveModules, type RequirementModule } from "./module-registry";
@@ -82,7 +83,7 @@ function userBlocks(sectionId: SectionId, config: ProjectConfig, modules: Requir
   }
 }
 
-function placeholderValues(config: ProjectConfig): Record<string, string> {
+function placeholderValues(config: ProjectConfig): Record<TemplatePlaceholder, string> {
   return {
     lineCoverage: String(config.coverage.linePercent),
     branchCoverage: String(config.coverage.branchPercent),

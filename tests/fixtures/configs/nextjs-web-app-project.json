@@ -1,0 +1,23 @@
+{
+  "projectName": "Team Retro Board",
+  "description": "Browser app for running sprint retrospectives.",
+  "businessRequirements": "- Facilitators create a board with three columns.\n- Participants add, edit, and vote on cards.\n- Boards are kept only for the current browser session.",
+  "acceptanceCriteria": "- A new board shows the columns Went well, To improve, and Actions.\n- Each participant can vote at most three times per board.",
+  "stretchGoals": "",
+  "mode": "project",
+  "appType": "web-app",
+  "language": "typescript",
+  "runtime": "none",
+  "backendFramework": "none",
+  "frontend": "nextjs",
+  "exposesApi": false,
+  "modules": {
+    "integrationTests": false,
+    "goldenDataset": false,
+    "persistence": false,
+    "security": true,
+    "openapi": false,
+    "postman": false
+  },
+  "coverage": { "enabled": true, "linePercent": 85, "branchPercent": 80 }
+}

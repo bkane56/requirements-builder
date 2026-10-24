@@ -1,0 +1,23 @@
+{
+  "projectName": "  Caf\u00e9 {{projectName}} & <Tools>  ",
+  "description": "Uses *Markdown*, `code`, and <b>HTML</b> as typed.",
+  "businessRequirements": "  Leading spaces are kept.\n\n# A user heading stays as typed\n\n- Literal {{lineCoverage}} and {{unknown}} are not substituted.\n- Symbols: \u00fc \u00f1 \u6771\u4eac \u2014 \ud83d\ude80 \\ $1 $& <script>alert(1)</script>\n\tTabbed line\n\nTrailing spaces here   \n",
+  "acceptanceCriteria": "",
+  "stretchGoals": "{{branchCoverage}} stays literal.",
+  "mode": "fast",
+  "appType": "other",
+  "language": "other",
+  "runtime": "none",
+  "backendFramework": "none",
+  "frontend": "none",
+  "exposesApi": false,
+  "modules": {
+    "integrationTests": false,
+    "goldenDataset": false,
+    "persistence": false,
+    "security": false,
+    "openapi": false,
+    "postman": false
+  },
+  "coverage": { "enabled": true, "linePercent": 70, "branchPercent": 60 }
+}
