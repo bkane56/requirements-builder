@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { assembleRequirements } from "@/lib/assemble-requirements";
 import { configsMatch, defaultConfig, type ProjectConfig } from "@/lib/config";
+import {
+  CONFIG_FILE_MAX_BYTES,
+  CONFIG_FILE_NAME,
+  parseConfigText,
+  serializeConfig,
+  type ConfigFileError,
+} from "@/lib/config-file";
 import {
   DOWNLOAD_COUNT_STORAGE_KEY,
   downloadFilename,
@@ -55,6 +62,7 @@ import {
   type StackSide,
 } from "@/lib/constants";
 import type { Templates } from "@/lib/load-templates";
+import { moduleVersionMap } from "@/lib/module-registry";
 import {
   allowedBackendFrameworks,
   allowedFrontends,
@@ -105,6 +113,13 @@ const TEXT_FIELDS: TextFieldSpec[] = [
 ];
 
 // Document order, used to move focus to the first invalid control.
+const CONFIG_FILE_ERRORS: Record<ConfigFileError, string> = {
+  "not-json": UI_TEXT.configFile.notJson,
+  "too-large": UI_TEXT.configFile.tooLarge,
+  "wrong-format": UI_TEXT.configFile.wrongFormat,
+  invalid: UI_TEXT.configFile.invalid,
+};
+
 const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
   ...TEXT_FIELDS.map((field) => field.name),
   "exposesApi",
@@ -425,6 +440,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const [assembled, setAssembled] = useState<AssembledSnapshot | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const [configFileNotice, setConfigFileNotice] = useState<{ kind: "status" | "alert"; text: string } | null>(null);
   const copyGeneration = useRef(0);
   const keepEditsRef = useRef<HTMLButtonElement>(null);
   const downloadCount = useRef(0);
@@ -555,23 +571,75 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   function downloadMarkdown() {
     if (!markdown) return;
     const count = loadDownloadCount();
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const started = downloadBlob(markdown, "text/markdown;charset=utf-8", downloadFilename(count));
+    if (started) storeDownloadCount(count + 1);
+  }
+
+  function downloadBlob(contents: string, type: string, filename: string): boolean {
+    const blob = new Blob([contents], { type });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = downloadFilename(count);
+    link.download = filename;
     document.body.appendChild(link);
     try {
       link.click();
     } catch {
       link.remove();
       URL.revokeObjectURL(url);
-      return;
+      return false;
     }
     link.remove();
     // Revoke on the next turn so the browser can start the download first.
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    storeDownloadCount(count + 1);
+    return true;
+  }
+
+  function exportConfiguration() {
+    const started = downloadBlob(
+      serializeConfig(config, moduleVersionMap()),
+      "application/json;charset=utf-8",
+      CONFIG_FILE_NAME,
+    );
+    setConfigFileNotice(started ? null : { kind: "alert", text: UI_TEXT.configFile.exportFailed });
+  }
+
+  async function importConfiguration(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > CONFIG_FILE_MAX_BYTES) {
+      setConfigFileNotice({ kind: "alert", text: UI_TEXT.configFile.tooLarge });
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setConfigFileNotice({ kind: "alert", text: UI_TEXT.configFile.readFailed });
+      return;
+    }
+
+    const parsed = parseConfigText(text, moduleVersionMap());
+    if (!parsed.ok) {
+      setConfigFileNotice({ kind: "alert", text: CONFIG_FILE_ERRORS[parsed.error] });
+      return;
+    }
+
+    const nextErrors = validateConfig(parsed.value.config);
+    setConfig(parsed.value.config);
+    setErrors(nextErrors);
+    setPending(null);
+    setAssemblyError("");
+    setConfigFileNotice({
+      kind: "status",
+      text: parsed.value.libraryChanged ? UI_TEXT.configFile.libraryChanged : UI_TEXT.configFile.imported,
+    });
+    if (hasErrors(nextErrors)) {
+      const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
+      if (firstInvalid) document.getElementById(fieldId(firstInvalid))?.focus();
+    }
   }
 
   const runtimes = allowedRuntimes(config);
@@ -823,6 +891,24 @@ export default function RequirementsBuilder({ templates }: { templates: Template
                 <ErrorText name="branchPercent" error={errors.branchPercent} />
               </div>
             </>
+          )}
+        </fieldset>
+
+        <fieldset>
+          <legend>{UI_TEXT.legends.configurationFile}</legend>
+          <div className="actions">
+            <button type="button" className="secondary" onClick={exportConfiguration}>
+              {UI_TEXT.buttons.exportConfiguration}
+            </button>
+            <label className="file-import">
+              {UI_TEXT.buttons.importConfiguration}
+              <input type="file" accept="application/json,.json" onChange={(event) => void importConfiguration(event)} />
+            </label>
+          </div>
+          {configFileNotice && (
+            <p role={configFileNotice.kind === "alert" ? "alert" : "status"} className={configFileNotice.kind === "alert" ? "error" : "status"}>
+              {configFileNotice.text}
+            </p>
           )}
         </fieldset>
 

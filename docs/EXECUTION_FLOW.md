@@ -2,7 +2,7 @@
 
 Requirements Builder turns a form into one Markdown document. A user enters business requirements, chooses a mode and a technology stack, and selects Assemble Draft. The page then validates that configuration, chooses Markdown modules, and writes `PROJECT_REQUIREMENTS.md` content into an editable preview. Copy and download use the text currently in that preview.
 
-Assembly is a synchronous, deterministic function of the current configuration and the template text loaded with the page. The same inputs always produce the same string. Nothing in that path calls an AI service, a database, or a network API. Configuration JSON import and export are not implemented.
+Assembly is a synchronous, deterministic function of the current configuration and the template text loaded with the page. The same inputs always produce the same string. Nothing in that path calls an AI service, a database, or a network API. Configuration JSON import and export stay in the browser.
 
 ## Main path
 
@@ -55,6 +55,7 @@ Template presence, registration, and placeholder rules are checked by [`tests/te
 | `assembled` | `applyAssembly` | Last successful snapshot: `{ config, markdown }`, or `null` before the first success. |
 | `pending` | Reassemble or Restore | A confirmation that is shown only while it still matches the live form and textarea. |
 | `copyStatus` | `copyMarkdown` | `"idle"`, `"copied"`, or `"failed"`. |
+| `configFileNotice` | Import or a failed export | A status or alert about the configuration file, or `null`. |
 
 Three refs are not rendered state. `copyGeneration` ignores a clipboard result that belongs to an older document. `keepEditsRef` receives focus when a confirmation opens. `downloadCount` is the in-memory download counter used when `sessionStorage` throws.
 
@@ -210,7 +211,21 @@ Starting the download does not mean the user finished saving the file. A name ca
 | Assembly throws after an edit | Assembly error path | Edited textarea | `keeps manual edits when assembly fails` |
 | Clipboard API is missing or `writeText` rejects | `copyStatus` becomes `"failed"` | Textarea | `reports a clipboard failure` and `reports a failure when the clipboard API is missing` |
 | Anchor `click` throws | Object URL revoked immediately | Download count | `leaves the counter unchanged when the download does not start` |
+| Configuration file is unreadable, too large, or the wrong shape | `configFileNotice` alert | Form, document, and snapshot | `leaves the form unchanged when the file cannot be imported` |
+| Configuration file is valid | Form replaced, validation errors refreshed, `pending` and `assemblyError` cleared | Current document and snapshot | `imports a configuration, leaves the current document, and reassembles the same draft` |
 | `sessionStorage` throws | Ref holds the count for this page view | Download still starts | `keeps numbering in memory when session storage is unavailable` |
 | A template file is missing at build time | `loadTemplates` throws while `Page` renders | No prerendered page | [`tests/templates.test.ts`](../tests/templates.test.ts) checks that every registered file exists; `yarn build` renders `Page` |
 
-A failed submit clears `assemblyError` at the start, so an old assembly alert does not remain beside a new validation error. A later successful `applyAssembly` also leaves that message empty because the submit already cleared it.
+A failed submit clears `assemblyError` at the start, so an old assembly alert does not remain beside a new validation error. A later successful `applyAssembly` also leaves that message empty because the submit already cleared it. A successful import also clears `assemblyError` and `pending`.
+
+## 11. Configuration import and export
+
+Export and import use the form, not the Markdown document. Both run in the browser. There is no server route.
+
+`serializeConfig` in [`lib/config-file.ts`](../lib/config-file.ts) first runs `normalizeSelections`, then writes a pretty-printed JSON file ending in one newline. The file has four fields: `format` (`requirements-builder-config`), `formatVersion` (`1`), `moduleVersions` from `moduleVersionMap()` in [`lib/module-registry.ts`](../lib/module-registry.ts), and `config`. Module version keys are sorted. The download name is always `PROJECT_CONFIGURATION.json`. `downloadBlob` uses the same object-URL sequence as Markdown download. If the anchor click throws, the page shows an alert and the form stays as it is.
+
+`parseConfigText` rejects text larger than 256 KB, text that is not JSON, a different format or format version, and a configuration that is missing a required field or uses the wrong type. It copies known fields only. `normalizeSelections` then drops choices the form cannot keep, such as UI languages on a non-Web-App project or an unsupported package manager. `moduleVersionsDiffer` compares the saved version map with the current registry. A difference does not block the import.
+
+On success, the page replaces `config`, runs `validateConfig`, clears `pending` and `assemblyError`, and leaves `markdown` and `assembled` untouched. Field errors from the imported form are shown immediately. On failure, the form and the document stay as they were. The file input is cleared after every attempt so the same file can be chosen again.
+
+[`tests/config-file.test.ts`](../tests/config-file.test.ts) checks the round trip for every golden fixture, verbatim user text, repaired choices, a library-version warning, and rejected files. The UI tests cover export, import without changing the current document, the library warning, a rejected file, and a failed export.

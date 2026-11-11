@@ -126,6 +126,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.file-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .status {
   color: #0b5f1a;
   font-size: 0.875rem;

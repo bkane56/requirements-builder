@@ -261,3 +261,7 @@ export const MODULES: RequirementModule[] = [
 export function resolveModules(config: ProjectConfig): RequirementModule[] {
   return MODULES.filter((module) => module.appliesTo(config));
 }
+
+export function moduleVersionMap(): Record<string, string> {
+  return Object.fromEntries(MODULES.map((module) => [module.id, module.version]));
+}

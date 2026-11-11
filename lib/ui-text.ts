@@ -1,3 +1,5 @@
+import { CONFIG_FILE_MAX_BYTES } from "./config-file";
+
 export const UI_TEXT = {
   configurationHeading: "Configuration",
   configurationFormLabel: "Project configuration",
@@ -28,6 +30,7 @@ export const UI_TEXT = {
     backendLanguages: "Backend languages",
     apiDocumentation: "API documentation",
     testing: "Testing and quality",
+    configurationFile: "Configuration file",
   },
   hints: {
     sharedManifest:
@@ -48,6 +51,19 @@ export const UI_TEXT = {
     keepEdits: "Keep edits",
     replaceEdits: "Replace edits",
     restoreDraft: "Restore draft",
+    exportConfiguration: "Export configuration",
+    importConfiguration: "Import configuration",
+  },
+  configFile: {
+    imported: "Imported the configuration. Assemble again to update the document.",
+    libraryChanged:
+      "Imported the configuration. The template library has changed since this file was saved, so assembly uses the current templates.",
+    readFailed: "Could not read the configuration file.",
+    exportFailed: "Could not export the configuration.",
+    notJson: "Configuration file is not valid JSON.",
+    tooLarge: `Configuration file must be ${CONFIG_FILE_MAX_BYTES / 1024} KB or smaller.`,
+    wrongFormat: "Configuration file is not a requirements builder configuration.",
+    invalid: "Configuration file is missing required choices or uses an unsupported shape.",
   },
   placeholder: {
     markdown: "Complete the form and select Assemble Draft.",

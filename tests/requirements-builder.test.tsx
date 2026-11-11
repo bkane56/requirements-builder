@@ -4,7 +4,13 @@ import path from "node:path";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder from "../components/requirements-builder";
+import { assembleRequirements } from "../lib/assemble-requirements";
+import { defaultConfig } from "../lib/config";
+import { serializeConfig } from "../lib/config-file";
 import { loadTemplates } from "../lib/load-templates";
+import { moduleVersionMap } from "../lib/module-registry";
+import { normalizeSelections } from "../lib/selection-rules";
+import { defaultToolchain } from "../lib/toolchain";
 
 const templates = loadTemplates();
 
@@ -753,3 +759,122 @@ describe("editable document and stale preview", () => {
     expect(leaving()).toBe(false);
   });
 });
+
+describe("configuration import and export", () => {
+  function configurationFile(contents: string, name = "PROJECT_CONFIGURATION.json") {
+    return new File([contents], name, { type: "application/json" });
+  }
+
+  function importFile(contents: string) {
+    fireEvent.change(screen.getByLabelText("Import configuration"), { target: { files: [configurationFile(contents)] } });
+  }
+
+  it("exports the current form as PROJECT_CONFIGURATION.json", async () => {
+    change("Project name", "Receipt Tracker");
+    let blob: Blob | undefined;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      blob = value as Blob;
+      return "blob:config";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clicks: HTMLAnchorElement[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push(this);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Export configuration" }));
+
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0].download).toBe("PROJECT_CONFIGURATION.json");
+    expect(blob?.type).toBe("application/json;charset=utf-8");
+    expect(await blob?.text()).toContain("Receipt Tracker");
+    expect(field("Project name").value).toBe("Receipt Tracker");
+  });
+
+  it("imports a configuration, leaves the current document, and reassembles the same draft", async () => {
+    fillRequired();
+    assemble();
+    const firstDraft = preview();
+
+    const imported = {
+      ...defaultConfig,
+      projectName: "Imported Ledger",
+      businessRequirements: "Users can export a ledger.",
+      appType: "web-app" as const,
+      frontend: "nextjs" as const,
+      uiLanguages: [defaultToolchain("typescript")],
+      backendLanguages: [defaultToolchain("java")],
+    };
+    importFile(serializeConfig(imported, moduleVersionMap()));
+
+    expect(
+      await screen.findByText("Imported the configuration. Assemble again to update the document."),
+    ).toBeTruthy();
+    expect(preview()).toBe(firstDraft);
+    expect(screen.getByText("The configuration has changed since this document was assembled.")).toBeTruthy();
+    expect(field("Project name").value).toBe("Imported Ledger");
+    expect(field("Backend Java").checked).toBe(true);
+    expect(field("UI TypeScript").checked).toBe(true);
+
+    assemble();
+    expect(preview()).toBe(assembleRequirements(normalizeSelections(imported), templates));
+  });
+
+  it("shows field errors when the imported form is incomplete", async () => {
+    importFile(serializeConfig(defaultConfig, moduleVersionMap()));
+
+    expect(await screen.findByText("Project name is required.")).toBeTruthy();
+    expect(screen.getByText("Business requirements are required.")).toBeTruthy();
+    expect(document.activeElement).toBe(field("Project name"));
+  });
+
+  it("warns when the saved template library differs and still applies the file", async () => {
+    const imported = {
+      ...defaultConfig,
+      projectName: "Imported Ledger",
+      businessRequirements: "Users can export a ledger.",
+    };
+    const file = JSON.parse(serializeConfig(imported, moduleVersionMap())) as { moduleVersions: Record<string, string> };
+    file.moduleVersions["business-core"] = "9.9.9";
+    importFile(JSON.stringify(file));
+
+    expect(
+      await screen.findByText(
+        "Imported the configuration. The template library has changed since this file was saved, so assembly uses the current templates.",
+      ),
+    ).toBeTruthy();
+    expect(field("Project name").value).toBe("Imported Ledger");
+  });
+
+  it("leaves the form unchanged when the file cannot be imported", async () => {
+    change("Project name", "Keep me");
+
+    importFile("{");
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Configuration file is not valid JSON.");
+    expect(field("Project name").value).toBe("Keep me");
+
+    importFile("{}");
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Configuration file is not a requirements builder configuration.",
+    );
+    expect(field("Project name").value).toBe("Keep me");
+
+    importFile("x".repeat(256 * 1024 + 1));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Configuration file must be 256 KB or smaller.");
+    expect(field("Project name").value).toBe("Keep me");
+  });
+
+  it("reports a failed export and leaves the form unchanged", () => {
+    change("Project name", "Keep me");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {
+      throw new Error("download blocked");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Export configuration" }));
+
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", "Could not export the configuration.");
+    expect(field("Project name").value).toBe("Keep me");
+  });
+});
+
