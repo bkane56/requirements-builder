@@ -5,8 +5,7 @@
 - Project name: Inventory API
 - Mode: Project Mode
 - Application type: REST API
-- Language: TypeScript
-- Package manager: Yarn (default for TypeScript)
+- Backend languages: TypeScript 7.0, Node.js 26, Yarn, Vitest, ESLint + Prettier
 - Runtime: Node.js
 - Backend framework: Node.js API (framework-neutral)
 - HTTP API: Included
@@ -48,15 +47,19 @@
 - Deliver incrementally in small, verifiable changes.
 - Prefer clear, maintainable code over clever or compressed code.
 
-### Module: `typescript-yarn` v1.0.0
+### Module: `typescript-backend` v2.0.0
 
-- Use TypeScript with `strict` mode enabled. Avoid `any`; type external data at boundaries.
-- Use Yarn for dependency management and commit `yarn.lock`. Never create `package-lock.json`.
+- These conventions apply to the Backend package.
+- Use TypeScript 7.0 with `strict` mode enabled. Avoid `any`; type external data at boundaries.
+- Target Node.js 26.
+- Use Yarn for dependency management and commit `yarn.lock`. Do not create `package-lock.json` or `pnpm-lock.yaml`.
 - Install with `yarn install --frozen-lockfile`. Provide `yarn lint`, `yarn typecheck`, `yarn test`, and `yarn build` scripts.
+- Use Vitest as the test runner.
+- Use ESLint for linting and Prettier for formatting.
 
-### Module: `nodejs-runtime` v1.0.0
+### Module: `nodejs-runtime` v1.1.0
 
-- Run on a supported Node.js LTS version and declare it in the `engines` field of `package.json`.
+- Run on Node.js 26 and declare it in the `engines` field of `package.json`.
 - Use `async`/`await` consistently. Handle every rejected promise; never leave a promise floating.
 - Read configuration from environment variables, validate it at startup, and document each variable in `.env.example`.
 - Log errors with enough context to diagnose them. Never log secrets or full request bodies containing personal data.
@@ -203,8 +206,8 @@
 
 - `business-core` v1.0.0: Business requirements handling
 - `engineering-core` v1.0.0: Engineering core standards
-- `typescript-yarn` v1.0.0: TypeScript with Yarn
-- `nodejs-runtime` v1.0.0: Node.js runtime
+- `typescript-backend` v2.0.0: TypeScript Backend toolchain
+- `nodejs-runtime` v1.1.0: Node.js runtime
 - `nodejs-api` v1.0.0: Node.js backend API
 - `project-extended` v1.0.0: Project Mode extended sections
 - `golden-dataset` v1.0.0: Golden dataset

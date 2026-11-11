@@ -1,0 +1,7 @@
+- These conventions apply to the {{sideLabel}} package.
+- Use Java {{languageVersion}}.
+- {{packageManagerSentence}}
+- {{manifestSentence}}
+- Build and test with `{{verifyCommand}}`. Run tests alone with `{{testCommand}}`.
+- {{testRunnerSentence}}
+- {{linterSentence}}

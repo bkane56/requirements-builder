@@ -5,8 +5,7 @@
 - Project name: Support Triage Agent
 - Mode: Fast Mode
 - Application type: AI Agent
-- Language: Python
-- Package manager: uv (default for Python)
+- Backend languages: Python 3.13, uv, pytest, Ruff
 - HTTP API: Not included
 - Assembly: deterministic, generated without AI
 
@@ -51,12 +50,16 @@ Not provided. Measurable acceptance criteria must be supplied by the user before
 - Deliver incrementally in small, verifiable changes.
 - Prefer clear, maintainable code over clever or compressed code.
 
-### Module: `python-uv` v1.0.0
+### Module: `python-backend` v2.0.0
 
-- Use `uv` for Python versions, virtual environments, and dependencies. Do not call `pip` directly.
+- These conventions apply to the Backend package.
+- Use Python 3.13.
+- Use `uv` for Python versions, virtual environments, and dependencies. Do not call `pip` or Poetry directly.
 - Declare dependencies in `pyproject.toml`, commit `uv.lock`, and pin the Python version in `.python-version`.
 - Install with `uv sync`. Run tests with `uv run pytest`.
-- Add type hints to public functions and check them with a type checker configured in `pyproject.toml`.
+- Use pytest as the test runner.
+- Use Ruff for linting and formatting.
+- Add type hints to public functions and check them with a type checker configured in the project.
 
 ## Architecture and Dependencies
 
@@ -147,7 +150,7 @@ Draft a suggested reply for low-priority tickets.
 
 - `business-core` v1.0.0: Business requirements handling
 - `engineering-core` v1.0.0: Engineering core standards
-- `python-uv` v1.0.0: Python with uv
+- `python-backend` v2.0.0: Python Backend toolchain
 - `agent-tool-calling` v1.0.0: AI agent tool calling
 - `golden-dataset` v1.0.0: Golden dataset
 - `unit-tests` v1.0.0: Unit tests

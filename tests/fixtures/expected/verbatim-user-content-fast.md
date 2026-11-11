@@ -5,7 +5,7 @@
 - Project name:   Café {{projectName}} & <Tools>  
 - Mode: Fast Mode
 - Application type: Other
-- Language: Other
+- Backend languages: Other
 - HTTP API: Not included
 - Assembly: deterministic, generated without AI
 
@@ -49,7 +49,7 @@ Not provided. Measurable acceptance criteria must be supplied by the user before
 ### Open questions
 
 - What are the measurable acceptance criteria for each functional requirement? None were provided.
-- Which programming language and toolchain should be used? "Other" was selected, so no language conventions are included.
+- Which backend language and toolchain should be used for the "Other" selection? No conventions are included for that choice.
 
 ## Technical Stack and Coding Conventions
 

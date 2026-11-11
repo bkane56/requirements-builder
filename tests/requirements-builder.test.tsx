@@ -34,7 +34,10 @@ afterEach(() => {
 describe("conditional controls", () => {
   it("shows only the controls that apply to the default configuration", () => {
     expect(field("Application type").value).toBe("other");
-    expect(field("Primary language").value).toBe("other");
+    expect(field("Backend Java").checked).toBe(false);
+    expect(field("Backend TypeScript").checked).toBe(false);
+    expect(field("Backend Other").checked).toBe(false);
+    expect(maybeField("UI TypeScript")).toBeNull();
     expect(maybeField("Includes an HTTP API")).not.toBeNull();
     for (const hidden of ["Runtime", "Backend framework", "Frontend framework", "Swagger / OpenAPI documentation", "Postman collection"]) {
       expect(maybeField(hidden), hidden).toBeNull();
@@ -42,27 +45,73 @@ describe("conditional controls", () => {
     expect(maybeField("Line coverage target (%)")).not.toBeNull();
   });
 
-  it("shows the Node.js runtime only for TypeScript and JavaScript", () => {
-    change("Primary language", "typescript");
+  it("shows the Node.js runtime only for backend TypeScript and JavaScript", () => {
+    fireEvent.click(field("Backend TypeScript"));
     expect(optionValues("Runtime")).toEqual(["none", "nodejs"]);
-    change("Primary language", "java");
+    fireEvent.click(field("Backend TypeScript"));
+    fireEvent.click(field("Backend Java"));
     expect(maybeField("Runtime")).toBeNull();
-    change("Primary language", "javascript");
+    fireEvent.click(field("Backend Java"));
+    fireEvent.click(field("Backend JavaScript"));
     expect(maybeField("Runtime")).not.toBeNull();
-    change("Primary language", "python");
+    fireEvent.click(field("Backend JavaScript"));
+    fireEvent.click(field("Backend Python"));
     expect(maybeField("Runtime")).toBeNull();
   });
 
   it("offers only the backend framework that matches the language and runtime", () => {
     change("Application type", "rest-api");
-    change("Primary language", "java");
+    fireEvent.click(field("Backend Java"));
     expect(optionValues("Backend framework")).toEqual(["none", "spring-boot"]);
-    change("Primary language", "python");
+    fireEvent.click(field("Backend Java"));
+    fireEvent.click(field("Backend Python"));
     expect(optionValues("Backend framework")).toEqual(["none", "fastapi"]);
-    change("Primary language", "typescript");
+    fireEvent.click(field("Backend Python"));
+    fireEvent.click(field("Backend TypeScript"));
     expect(maybeField("Backend framework")).toBeNull();
     change("Runtime", "nodejs");
     expect(optionValues("Backend framework")).toEqual(["none", "nodejs-api"]);
+  });
+
+  it("reveals toolchain choices for a checked language and removes them when unchecked", () => {
+    fireEvent.click(field("Backend Java"));
+    expect(optionValues("Backend Java package manager")).toEqual(["maven", "gradle"]);
+    expect(field("Backend Java package manager").value).toBe("maven");
+    expect(optionValues("Backend Java language version")).toEqual(["17", "21", "25"]);
+    expect(screen.getByText("Test runner: JUnit 5.")).toBeTruthy();
+    expect(maybeField("Backend Java test runner")).toBeNull();
+
+    change("Application type", "web-app");
+    fireEvent.click(field("UI TypeScript"));
+    expect(optionValues("UI TypeScript package manager")).toEqual(["yarn", "npm", "pnpm"]);
+    expect(field("UI TypeScript package manager").value).toBe("yarn");
+    expect(optionValues("UI TypeScript Node.js version")).toEqual(["26", "24"]);
+
+    fireEvent.click(field("Backend Java"));
+    expect(maybeField("Backend Java package manager")).toBeNull();
+  });
+
+  it("keeps JavaScript and TypeScript toolchain choices in sync on one side", () => {
+    fireEvent.click(field("Backend JavaScript"));
+    change("Backend JavaScript package manager", "npm");
+    fireEvent.click(field("Backend TypeScript"));
+    expect(field("Backend TypeScript package manager").value).toBe("npm");
+    expect(screen.getByText(/share one package manifest/)).toBeTruthy();
+
+    change("Backend TypeScript test runner", "jest");
+    expect(field("Backend JavaScript test runner").value).toBe("jest");
+    expect(field("Backend TypeScript language version").value).toBe("7.0");
+  });
+
+  it("hides and clears UI languages when leaving Web App", () => {
+    change("Application type", "web-app");
+    fireEvent.click(field("UI TypeScript"));
+    change("UI TypeScript package manager", "npm");
+    change("Application type", "rest-api");
+    expect(maybeField("UI TypeScript")).toBeNull();
+    change("Application type", "web-app");
+    expect(field("UI TypeScript").checked).toBe(false);
+    expect(maybeField("UI TypeScript package manager")).toBeNull();
   });
 
   it("shows the frontend choice only for Web App, defaulting to No preference", () => {
@@ -94,15 +143,17 @@ describe("conditional controls", () => {
 describe("compatibility resets", () => {
   it("clears the Node.js runtime and Node API framework when the language changes", () => {
     change("Application type", "rest-api");
-    change("Primary language", "typescript");
+    fireEvent.click(field("Backend TypeScript"));
     change("Runtime", "nodejs");
     change("Backend framework", "nodejs-api");
 
-    change("Primary language", "java");
+    fireEvent.click(field("Backend TypeScript"));
+    fireEvent.click(field("Backend Java"));
     expect(maybeField("Runtime")).toBeNull();
     expect(field("Backend framework").value).toBe("none");
 
-    change("Primary language", "typescript");
+    fireEvent.click(field("Backend Java"));
+    fireEvent.click(field("Backend TypeScript"));
     expect(field("Runtime").value).toBe("none");
   });
 
@@ -123,7 +174,7 @@ describe("compatibility resets", () => {
 
   it("clears the backend framework and API documentation when the HTTP API is turned off", () => {
     change("Application type", "ai-agent");
-    change("Primary language", "python");
+    fireEvent.click(field("Backend Python"));
     fireEvent.click(field("Includes an HTTP API"));
     change("Backend framework", "fastapi");
     fireEvent.click(field("Postman collection"));
@@ -220,7 +271,7 @@ describe("assembly", () => {
       "- POST /orders with valid items returns 201 and the new order ID.\n- GET /orders/{id} for an unknown ID returns 404.",
     );
     change("Application type", "rest-api");
-    change("Primary language", "java");
+    fireEvent.click(field("Backend Java"));
     change("Backend framework", "spring-boot");
     fireEvent.click(field("Swagger / OpenAPI documentation"));
     fireEvent.click(field("Postman collection"));

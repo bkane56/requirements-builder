@@ -6,7 +6,10 @@
   "stretchGoals": "",
   "mode": "fast",
   "appType": "rest-api",
-  "language": "java",
+  "uiLanguages": [],
+  "backendLanguages": [
+    { "language": "java", "packageManager": "maven", "languageVersion": "17", "linter": "spotless" }
+  ],
   "runtime": "none",
   "backendFramework": "spring-boot",
   "frontend": "none",

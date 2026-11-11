@@ -5,8 +5,8 @@
 - Project name: Team Retro Board
 - Mode: Project Mode
 - Application type: Web App
-- Language: TypeScript
-- Package manager: Yarn (default for TypeScript)
+- UI languages: TypeScript 7.0, Node.js 26, Yarn, Vitest, ESLint + Prettier
+- Backend languages: None selected
 - Frontend: Next.js
 - HTTP API: Not included
 - Assembly: deterministic, generated without AI
@@ -40,6 +40,12 @@ Browser app for running sprint retrospectives.
 - A new board shows the columns Went well, To improve, and Actions.
 - Each participant can vote at most three times per board.
 
+## Assumptions and Unresolved Questions
+
+### Open questions
+
+- Which backend language and toolchain should be used? None was selected, so no backend language conventions are included.
+
 ## Technical Stack and Coding Conventions
 
 ### Module: `engineering-core` v1.0.0
@@ -52,11 +58,15 @@ Browser app for running sprint retrospectives.
 - Deliver incrementally in small, verifiable changes.
 - Prefer clear, maintainable code over clever or compressed code.
 
-### Module: `typescript-yarn` v1.0.0
+### Module: `typescript-ui` v2.0.0
 
-- Use TypeScript with `strict` mode enabled. Avoid `any`; type external data at boundaries.
-- Use Yarn for dependency management and commit `yarn.lock`. Never create `package-lock.json`.
+- These conventions apply to the UI package.
+- Use TypeScript 7.0 with `strict` mode enabled. Avoid `any`; type external data at boundaries.
+- Target Node.js 26.
+- Use Yarn for dependency management and commit `yarn.lock`. Do not create `package-lock.json` or `pnpm-lock.yaml`.
 - Install with `yarn install --frozen-lockfile`. Provide `yarn lint`, `yarn typecheck`, `yarn test`, and `yarn build` scripts.
+- Use Vitest as the test runner.
+- Use ESLint for linting and Prettier for formatting.
 
 ### Module: `nextjs-react` v1.0.0
 
@@ -171,7 +181,7 @@ No stretch goals were provided. Treat every functional requirement above as must
 
 - `business-core` v1.0.0: Business requirements handling
 - `engineering-core` v1.0.0: Engineering core standards
-- `typescript-yarn` v1.0.0: TypeScript with Yarn
+- `typescript-ui` v2.0.0: TypeScript UI toolchain
 - `nextjs-react` v1.0.0: Next.js and React frontend
 - `project-extended` v1.0.0: Project Mode extended sections
 - `unit-tests` v1.0.0: Unit tests

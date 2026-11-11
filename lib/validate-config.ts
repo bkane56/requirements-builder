@@ -1,6 +1,7 @@
 import type { ProjectConfig } from "./config";
 import { API_MODULES, APP_TYPE_LABELS, FIXED_API_BY_APP_TYPE, INPUT_LIMITS } from "./constants";
 import { allowedBackendFrameworks, allowedFrontends, allowedRuntimes } from "./selection-rules";
+import { isLegalStack } from "./toolchain";
 import { VALIDATION_TEXT } from "./ui-text";
 
 // Line and branch targets are separate keys so each input can be marked and focused on its own.
@@ -24,6 +25,16 @@ function validateSelections(config: ProjectConfig, errors: ValidationErrors) {
     errors.exposesApi = fixedApi
       ? VALIDATION_TEXT.httpApiRequired(APP_TYPE_LABELS[config.appType])
       : VALIDATION_TEXT.httpApiForbidden(APP_TYPE_LABELS[config.appType]);
+  }
+
+  if (config.appType !== "web-app" && config.uiLanguages.length > 0) {
+    errors.uiLanguages = VALIDATION_TEXT.uiLanguagesOnlyWebApp;
+  } else if (!isLegalStack(config.uiLanguages, "ui")) {
+    errors.uiLanguages = VALIDATION_TEXT.uiLanguages;
+  }
+
+  if (!isLegalStack(config.backendLanguages, "backend")) {
+    errors.backendLanguages = VALIDATION_TEXT.backendLanguages;
   }
 
   if (!allowedRuntimes(config).includes(config.runtime)) {

@@ -1,0 +1,7 @@
+- These conventions apply to the {{sideLabel}} package.
+- Use modern JavaScript with ES modules on Node.js {{nodeVersion}}.
+- {{packageManagerSentence}}
+- Install with `{{installCommand}}`. Provide `{{lintCommand}}`, `{{testCommand}}`, and, where a build step exists, `{{buildCommand}}` scripts.
+- {{testRunnerSentence}}
+- {{linterSentence}}
+- Validate external data at runtime because there is no compile-time type checking.

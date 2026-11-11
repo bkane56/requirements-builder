@@ -2,9 +2,7 @@ import type { ProjectConfig } from "./config";
 import {
   APP_TYPE_LABELS,
   BACKEND_FRAMEWORK_LABELS,
-  DEFAULT_PACKAGE_MANAGERS,
   FRONTEND_LABELS,
-  LANGUAGE_LABELS,
   MISSING_TEXT,
   MODE_LABELS,
   NO_STRETCH_GOALS,
@@ -12,22 +10,39 @@ import {
   RUNTIME_LABELS,
   SECTIONS,
   USER_CONTENT_HEADING,
+  type Language,
+  type LanguageToolchain,
   type SectionId,
-  type TemplatePlaceholder,
+  type StackSide,
 } from "./constants";
 import type { Templates } from "./load-templates";
 import { resolveModules, type RequirementModule } from "./module-registry";
+import {
+  apiStartCommand,
+  hasJavaScriptFamily,
+  nodeVersionOf,
+  springRunCommand,
+  toolchainPlaceholderValues,
+  toolchainSummary,
+} from "./toolchain";
 
 const PLACEHOLDER = /\{\{([^}]*)\}\}/g;
 
 const isBlank = (value: string) => value.trim().length === 0;
 
+function formatStack(label: string, entries: LanguageToolchain[]): string {
+  const choices = entries.map(toolchainSummary);
+  return `- ${label}: ${choices.length === 0 ? "None selected" : choices.join("; ")}`;
+}
+
 function technologySummary(config: ProjectConfig): string[] {
-  const packageManager = DEFAULT_PACKAGE_MANAGERS[config.language];
   return [
     `- Application type: ${APP_TYPE_LABELS[config.appType]}`,
-    `- Language: ${LANGUAGE_LABELS[config.language]}`,
-    ...(packageManager ? [`- Package manager: ${packageManager} (default for ${LANGUAGE_LABELS[config.language]})`] : []),
+    ...(config.appType === "web-app" ? [formatStack("UI languages", config.uiLanguages)] : []),
+    formatStack("Backend languages", config.backendLanguages),
+    ...(hasJavaScriptFamily(config.uiLanguages) && hasJavaScriptFamily(config.backendLanguages)
+      ? ["- UI and backend packages: separate. Each side keeps its own package manifest."]
+      : []),
     ...(config.runtime !== "none" ? [`- Runtime: ${RUNTIME_LABELS[config.runtime]}`] : []),
     ...(config.backendFramework !== "none" ? [`- Backend framework: ${BACKEND_FRAMEWORK_LABELS[config.backendFramework]}`] : []),
     ...(config.frontend !== "none" ? [`- Frontend: ${FRONTEND_LABELS[config.frontend]}`] : []),
@@ -63,7 +78,17 @@ function userBlocks(sectionId: SectionId, config: ProjectConfig, modules: Requir
       const questions: string[] = [];
       if (isBlank(config.businessRequirements)) questions.push(OPEN_QUESTIONS.businessRequirements);
       if (isBlank(config.acceptanceCriteria)) questions.push(OPEN_QUESTIONS.acceptanceCriteria);
-      if (config.language === "other") questions.push(OPEN_QUESTIONS.language);
+      if (config.backendLanguages.length === 0) questions.push(OPEN_QUESTIONS.backendLanguage);
+      else if (config.backendLanguages.some((entry) => entry.language === "other")) {
+        questions.push(OPEN_QUESTIONS.backendOther);
+      }
+      if (config.appType === "web-app") {
+        if (config.uiLanguages.length === 0) questions.push(OPEN_QUESTIONS.uiLanguage);
+        else if (config.uiLanguages.some((entry) => entry.language === "other")) questions.push(OPEN_QUESTIONS.uiOther);
+      }
+      const uiNode = nodeVersionOf(config.uiLanguages);
+      const backendNode = nodeVersionOf(config.backendLanguages);
+      if (uiNode && backendNode && uiNode !== backendNode) questions.push(OPEN_QUESTIONS.nodeVersions);
       if (config.frontend === "no-preference") questions.push(OPEN_QUESTIONS.frontend);
       return questions.length === 0
         ? []
@@ -83,11 +108,24 @@ function userBlocks(sectionId: SectionId, config: ProjectConfig, modules: Requir
   }
 }
 
-function placeholderValues(config: ProjectConfig): Record<TemplatePlaceholder, string> {
-  return {
+const LANGUAGE_MODULE_ID = /^(java|python|typescript|javascript)-(ui|backend)$/;
+
+function placeholderValues(config: ProjectConfig, module: RequirementModule): Record<string, string> {
+  const values: Record<string, string> = {
     lineCoverage: String(config.coverage.linePercent),
     branchCoverage: String(config.coverage.branchPercent),
+    nodeVersion: nodeVersionOf(config.backendLanguages) ?? "LTS",
+    springRunCommand: springRunCommand(config.backendLanguages),
+    apiStartCommand: apiStartCommand(config.backendLanguages),
   };
+  const match = LANGUAGE_MODULE_ID.exec(module.id);
+  if (!match) return values;
+  const side = match[2] as StackSide;
+  const language = match[1] as Language;
+  const entries = side === "ui" ? config.uiLanguages : config.backendLanguages;
+  const entry = entries.find((item) => item.language === language);
+  if (!entry) return values;
+  return { ...values, ...toolchainPlaceholderValues(entry, side) };
 }
 
 // Single pass, so substituted values are never re-scanned for placeholders.
@@ -100,18 +138,17 @@ function fillPlaceholders(moduleId: string, content: string, values: Record<stri
   });
 }
 
-function moduleBlock(module: RequirementModule, templates: Templates, values: Record<string, string>): string {
+function moduleBlock(module: RequirementModule, templates: Templates, config: ProjectConfig): string {
   const content = templates[module.id];
   if (content === undefined) {
     throw new Error(`Missing template for module "${module.id}".`);
   }
-  const filled = fillPlaceholders(module.id, content, values);
+  const filled = fillPlaceholders(module.id, content, placeholderValues(config, module));
   return `### Module: \`${module.id}\` v${module.version}\n\n${filled.trimEnd()}`;
 }
 
 export function assembleRequirements(config: ProjectConfig, templates: Templates): string {
   const modules = resolveModules(config);
-  const values = placeholderValues(config);
   const parts = ["# Project Requirements"];
 
   for (const section of SECTIONS) {
@@ -119,7 +156,7 @@ export function assembleRequirements(config: ProjectConfig, templates: Templates
       ...userBlocks(section.id, config, modules),
       ...modules
         .filter((module) => module.section === section.id)
-        .map((module) => moduleBlock(module, templates, values)),
+        .map((module) => moduleBlock(module, templates, config)),
     ];
     if (blocks.length > 0) {
       parts.push(`## ${section.title}`, ...blocks);

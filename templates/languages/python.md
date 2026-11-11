@@ -1,0 +1,8 @@
+- These conventions apply to the {{sideLabel}} package.
+- Use Python {{languageVersion}}.
+- {{packageManagerSentence}}
+- {{manifestSentence}}
+- Install with `{{installCommand}}`. Run tests with `{{testCommand}}`.
+- {{testRunnerSentence}}
+- {{linterSentence}}
+- Add type hints to public functions and check them with a type checker configured in the project.

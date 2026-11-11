@@ -24,8 +24,8 @@ describe("module registry and template files", () => {
     expect(missing.map((module) => module.file)).toEqual([]);
   });
 
-  it("registers every template file exactly once", () => {
-    expect(MODULES.map((module) => module.file).sort()).toEqual(templateFiles);
+  it("registers every template file at least once", () => {
+    expect([...new Set(MODULES.map((module) => module.file))].sort()).toEqual(templateFiles);
   });
 
   it("uses unique module IDs", () => {

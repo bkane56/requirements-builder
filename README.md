@@ -65,7 +65,7 @@ To add a case, add a configuration JSON (it must pass validation and must alread
 
 1. Start the app with `yarn dev`, or with `yarn build` and `yarn start`.
 2. Enter a project name and the business requirements. Both are required. Optional description, acceptance criteria, and stretch goals are inserted verbatim when provided.
-3. Choose Fast or Project mode, then the application type, language, and any technology options the form shows. Dependent choices reset when a parent choice changes.
+3. Choose Fast or Project mode, then the application type. Check one or more backend languages, and, for a Web App, one or more UI languages. Each checked language shows its package manager, version, test runner, and linter, already filled with defaults. Dependent choices reset when a parent choice changes. JavaScript and TypeScript on the same side share one package manifest, so those shared choices stay in sync. The two sides stay separate.
 4. Select Assemble Draft. The preview stays empty until this succeeds. Fix any field errors and select Assemble Draft again. Focus moves to the first invalid field. After a document exists, the same button is labeled Reassemble.
 5. Edit the Markdown document directly if you want. Those edits stay in the document until you confirm a replacement. Changing the form does not change the document by itself. A notice says when the form no longer matches the last assembly, and a separate notice says when the document has manual edits. Changing a value back removes the matching notice.
 6. Copy or download the current document. Both actions stay disabled while the document is empty. They use the text in the document, including manual edits.
@@ -80,9 +80,9 @@ The browser may show its generic leave prompt while the document has manual edit
 
 ## Current status (Stage 2A)
 
-Implemented: project inputs, Fast/Project mode, application type, language, Node.js runtime, backend framework, frontend framework (Web App only), HTTP API inclusion, Swagger/OpenAPI and Postman (only with an HTTP API), optional testing/data/security modules, configurable coverage targets, Fast Mode architecture and complexity constraints, compatibility validation, deterministic assembly, an editable Markdown document, stale and edited notices, confirmed reassembly and restore, copy, and download.
+Implemented: project inputs, Fast/Project mode, application type, backend languages (Java, Python, TypeScript, JavaScript, Other) and UI languages for a Web App (TypeScript, JavaScript, Other), per-language package manager, language version, test runner, and linter choices, Node.js runtime, one backend framework, frontend framework (Web App only), HTTP API inclusion, Swagger/OpenAPI and Postman (only with an HTTP API), optional testing/data/security modules, configurable coverage targets, Fast Mode architecture and complexity constraints, compatibility validation, deterministic assembly, an editable Markdown document, stale and edited notices, confirmed reassembly and restore, copy, and download.
 
-Package managers are fixed per language (Maven for Java, uv for Python, Yarn for TypeScript and JavaScript) and are not selectable.
+Package manager choices are Yarn, npm, and pnpm for JavaScript and TypeScript (default Yarn), Maven and Gradle for Java (default Maven), and uv, Poetry, and pip for Python (default uv). Defaults also include TypeScript 7.0, Node.js 26, Vitest, ESLint plus Prettier, Java 17, JUnit 5, Spotless, Python 3.13, pytest, and Ruff.
 
 ### Limitations
 
@@ -91,6 +91,8 @@ Package managers are fixed per language (Maven for Java, uv for Python, Yarn for
 - Download names are remembered only for the current browser tab. They can still match a file saved in an earlier session, and starting a download does not confirm that the file was saved.
 - Templates are read at build time. Editing a template requires another build before `yarn start` serves it.
 - Line and branch coverage are whole-number targets from 0 to 100. They are guidance in the generated document, not a test run.
+- The form can check more than one backend language, but it still offers only one backend framework.
+- JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter. UI and backend selections are separate packages. There is no monorepo or workspace choice.
 
 ### Deferred to later stages
 

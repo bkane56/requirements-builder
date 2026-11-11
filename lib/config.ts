@@ -4,11 +4,12 @@ import {
   type AppType,
   type BackendFramework,
   type Frontend,
-  type Language,
+  type LanguageToolchain,
   type Mode,
   type OptionalModule,
   type Runtime,
 } from "./constants";
+import { stacksEqual } from "./toolchain";
 
 export type ProjectConfig = {
   projectName: string;
@@ -18,7 +19,8 @@ export type ProjectConfig = {
   stretchGoals: string;
   mode: Mode;
   appType: AppType;
-  language: Language;
+  uiLanguages: LanguageToolchain[];
+  backendLanguages: LanguageToolchain[];
   runtime: Runtime;
   backendFramework: BackendFramework;
   frontend: Frontend;
@@ -35,7 +37,8 @@ export const defaultConfig: ProjectConfig = {
   stretchGoals: "",
   mode: "fast",
   appType: "other",
-  language: "other",
+  uiLanguages: [],
+  backendLanguages: [],
   runtime: "none",
   backendFramework: "none",
   frontend: "none",
@@ -60,7 +63,8 @@ export function configsMatch(left: ProjectConfig, right: ProjectConfig): boolean
     left.stretchGoals === right.stretchGoals &&
     left.mode === right.mode &&
     left.appType === right.appType &&
-    left.language === right.language &&
+    stacksEqual(left.uiLanguages, right.uiLanguages) &&
+    stacksEqual(left.backendLanguages, right.backendLanguages) &&
     left.runtime === right.runtime &&
     left.backendFramework === right.backendFramework &&
     left.frontend === right.frontend &&

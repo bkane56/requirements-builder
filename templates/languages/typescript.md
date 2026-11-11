@@ -1,0 +1,7 @@
+- These conventions apply to the {{sideLabel}} package.
+- Use TypeScript {{languageVersion}} with `strict` mode enabled. Avoid `any`; type external data at boundaries.
+- Target Node.js {{nodeVersion}}.
+- {{packageManagerSentence}}
+- Install with `{{installCommand}}`. Provide `{{lintCommand}}`, `{{typecheckCommand}}`, `{{testCommand}}`, and `{{buildCommand}}` scripts.
+- {{testRunnerSentence}}
+- {{linterSentence}}

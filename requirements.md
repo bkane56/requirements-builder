@@ -52,7 +52,9 @@ The builder must **never silently invent business requirements** or discard expl
 
 ### 3.3 Planned for later versions (design for, do not implement in MVP)
 
-- User-selectable dependency/build managers by ecosystem: Maven/Gradle (Java); uv/Poetry/pip (Python); Yarn/npm/pnpm (Node.js / JavaScript / TypeScript); Go modules (Go). For MVP, use the documented convention for each initial module, and avoid presenting unsupported choices.
+- Go modules, and languages beyond Java, Python, TypeScript, and JavaScript.
+- One backend framework choice per selected language, so a project can require Spring Boot and FastAPI together. The current form stores one framework.
+- Workspace or monorepo tooling when the UI and backend are both JavaScript or TypeScript. Until then, those sides are separate packages.
 - More framework/runtime options, customizable module authoring in the UI, and advanced coverage policy configuration.
 - Optional saved user presets and more elaborate configuration validation as the library grows.
 
@@ -85,8 +87,8 @@ Do not choose additional dependencies without documenting the reason.
 1. User enters project name and business requirements.
 2. User chooses **Fast Mode** or **Project Mode**.
 3. User chooses application type: REST API, AI Agent, Web App, CLI/Library, or Other.
-4. User chooses primary language (Java, Python, TypeScript, JavaScript, Other).
-5. User chooses applicable framework/runtime choices (Node.js for JavaScript/TypeScript backends; Next.js or React + Vite for a browser UI) and optional testing, persistence, API documentation, and security modules. Build/dependency manager selection is deferred beyond the MVP; module defaults are visible.
+4. User checks backend languages (Java, Python, TypeScript, JavaScript, Other) and, for a Web App, UI languages (TypeScript, JavaScript, Other). Each checked language reveals its package manager, language version, test runner, and linter, filled with defaults.
+5. User chooses applicable framework/runtime choices (Node.js when the backend includes JavaScript or TypeScript; Next.js or React + Vite for a browser UI) and optional testing, persistence, API documentation, and security modules. The form still offers one backend framework.
 6. UI identifies incompatible or irrelevant combinations; dependent options appear only when applicable.
 7. User clicks **Assemble Draft**.
 8. The system generates a deterministic Markdown document, visibly listing included module identifiers/versions.
@@ -114,11 +116,11 @@ Fast Mode should produce a useful draft with only a few interactions. It must **
 
 ### 5.3 Technology configuration and coverage
 
-- **Language:** Java, Python, TypeScript or JavaScript (with Other as a text fallback). Do not conflate a language with a runtime.
-- **Runtime/backend:** Offer Node.js only when relevant to JavaScript/TypeScript backend projects. Other backend framework choices remain conditional and modest in the MVP.
+- **Language:** Separate UI and backend selections. Backend languages are Java, Python, TypeScript, JavaScript, and Other. UI languages are TypeScript, JavaScript, and Other, and they appear only for a Web App. Several languages may be checked on one side. Do not conflate a language with a runtime.
+- **Runtime/backend:** Offer Node.js only when the backend includes JavaScript or TypeScript. A UI language does not offer the Node.js runtime. The form still stores one backend framework.
 - **Frontend:** Only show if the application includes a user interface; use Next.js, React + Vite, or No preference. Avoid presenting a separate browser UI requirement for a pure API or CLI.
 - **Coverage:** Offer simple optional numeric targets for statement/line and branch coverage. Suggested initial values (e.g., 85% line, 80% branch) may be changed or disabled. Generated docs should emphasize functional/business-logic verification and clear exclusions for generated code and configuration, not encourage gaming the numbers.
-- **Dependency/build tooling:** Include a schema field with ecosystem-appropriate defaults but defer selectable package managers to a later release. Never generate commands for an unsupported configuration.
+- **Dependency/build tooling:** Each checked language stores its own package manager and toolchain. JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter because they share one manifest. The UI and backend sides do not share a manifest. Never generate commands for an unsupported configuration. Defaults are Yarn, Maven, and uv.
 
 ### 5.4 Project Mode
 
@@ -134,9 +136,10 @@ Initial modules:
 |---|---|---|
 | Business | `business-core` | Project purpose, user stories, business rules, scope, assumptions |
 | General | `engineering-core` | Separation of concerns, input validation, constants, error handling, incremental delivery |
-| Language | `java-17-maven` | Java 17, Maven, test/build instructions |
-| Language | `python-uv` | Python, `uv`, environment setup, typing, tests |
-| Language | `typescript-yarn` | TypeScript and Yarn conventions |
+| Language | `java-backend` | Java version, Maven or Gradle, JUnit 5, and formatter, parameterized from the backend toolchain |
+| Language | `python-backend` | Python version, uv, Poetry, or pip, tests, and linter, parameterized from the backend toolchain |
+| Language | `typescript-ui`, `typescript-backend` | TypeScript version, Node.js version, Yarn, npm, or pnpm, test runner, and linter. The same template is emitted once per side |
+| Language | `javascript-ui`, `javascript-backend` | JavaScript, Node.js version, package manager, test runner, and linter. The same template is emitted once per side |
 | Runtime | `nodejs-runtime` | Node.js server runtime, async/await, error handling, environment variables and logging; not a programming language |
 | Backend | `nodejs-api` | Node.js backend API conventions, minimal framework-neutral guidance (Express/Fastify/NestJS variations deferred) |
 | Frontend | `react-vite` | React + Vite browser UI conventions, accessibility and UI testing |
@@ -159,7 +162,7 @@ Initial modules:
 - The UI must disable or flag incompatible combinations (e.g., Maven-only rules with Python).
 - Distinguish language, runtime, framework, and dependency manager as separate concepts in configuration. Node.js is a runtime; do not present it as a language.
 - Show frontend choices only for projects requiring a UI. For MVP, offer Next.js and React + Vite (or "No preference"), without requiring a frontend for backend/CLI projects.
-- For MVP, use explicit package-manager defaults rather than a large choice matrix: Maven for Java, uv for Python, Yarn for JavaScript/TypeScript. Model the selected/default manager in configuration so later versions can support choice without a migration problem.
+- Store the selected package manager, language version, test runner, and linter on each checked language. Defaults are Maven for Java, uv for Python, and Yarn for JavaScript and TypeScript. JavaScript and TypeScript on one side share the package manager and the other manifest-level choices. UI and backend copies of the same language are separate packages.
 - Keep optional coverage thresholds configurable; defaults should be guidance, not misleading guarantees of correctness. Include meaningful tests for critical business logic even when coverage numbers are met.
 - Only show OpenAPI/Postman as relevant when an API surface exists; do not assume every app needs an API.
 - Do not automatically add persistence just because data exists; local fixture files or in-memory data may be sufficient.

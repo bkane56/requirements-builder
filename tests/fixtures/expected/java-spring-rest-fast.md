@@ -5,8 +5,7 @@
 - Project name: Order Service
 - Mode: Fast Mode
 - Application type: REST API
-- Language: Java
-- Package manager: Maven (default for Java)
+- Backend languages: Java 17, Maven, JUnit 5, Spotless
 - Backend framework: Spring Boot
 - HTTP API: Included
 - Assembly: deterministic, generated without AI
@@ -52,15 +51,17 @@ Internal service for creating and retrieving customer orders.
 - Deliver incrementally in small, verifiable changes.
 - Prefer clear, maintainable code over clever or compressed code.
 
-### Module: `java-17-maven` v1.0.0
+### Module: `java-backend` v2.0.0
 
+- These conventions apply to the Backend package.
 - Use Java 17.
 - Use Maven for build and dependency management. Prefer the Maven Wrapper (`./mvnw`) and commit it. Do not introduce Gradle or Ant.
 - Pin plugin and dependency versions in `pom.xml`.
 - Build and test with `./mvnw clean verify`. Run tests alone with `./mvnw test`.
 - Use JUnit 5 for tests.
+- Format Java with Spotless.
 
-### Module: `spring-boot` v1.0.0
+### Module: `spring-boot` v1.1.0
 
 - Keep controllers thin. Place business logic in services and persistence in repositories.
 - Expose DTOs at the API boundary; do not return persistence entities.
@@ -174,8 +175,8 @@ No stretch goals were provided. Treat every functional requirement above as must
 
 - `business-core` v1.0.0: Business requirements handling
 - `engineering-core` v1.0.0: Engineering core standards
-- `java-17-maven` v1.0.0: Java 17 with Maven
-- `spring-boot` v1.0.0: Spring Boot service
+- `java-backend` v2.0.0: Java Backend toolchain
+- `spring-boot` v1.1.0: Spring Boot service
 - `golden-dataset` v1.0.0: Golden dataset
 - `unit-tests` v1.0.0: Unit tests
 - `integration-tests` v1.0.0: Integration tests

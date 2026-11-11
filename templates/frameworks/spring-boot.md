@@ -2,4 +2,4 @@
 - Expose DTOs at the API boundary; do not return persistence entities.
 - Validate request bodies with Bean Validation (`@Valid`) and map errors to a consistent response through `@RestControllerAdvice`.
 - Externalize configuration in `application.yml` with environment variable overrides. Keep transactions short.
-- Start locally with `./mvnw spring-boot:run`.
+- Start locally with `{{springRunCommand}}`.

@@ -13,18 +13,46 @@ import {
   APP_TYPE_LABELS,
   APP_TYPES,
   BACKEND_FRAMEWORK_LABELS,
-  DEFAULT_PACKAGE_MANAGERS,
+  BACKEND_LANGUAGES,
   FRONTEND_LABELS,
   INPUT_LIMITS,
+  JAVA_LINTER_LABELS,
+  JAVA_LINTERS,
+  JAVA_PACKAGE_MANAGER_LABELS,
+  JAVA_PACKAGE_MANAGERS,
+  JAVA_VERSION_LABELS,
+  JAVA_VERSIONS,
+  JS_LINTER_LABELS,
+  JS_LINTERS,
+  JS_PACKAGE_MANAGER_LABELS,
+  JS_PACKAGE_MANAGERS,
+  JS_TEST_RUNNER_LABELS,
+  JS_TEST_RUNNERS,
   LANGUAGE_LABELS,
-  LANGUAGES,
   MODE_DESCRIPTIONS,
   MODE_LABELS,
   MODES,
+  NODE_VERSION_LABELS,
+  NODE_VERSIONS,
   OPTIONAL_MODULE_LABELS,
   OPTIONAL_MODULES,
+  PYTHON_LINTER_LABELS,
+  PYTHON_LINTERS,
+  PYTHON_PACKAGE_MANAGER_LABELS,
+  PYTHON_PACKAGE_MANAGERS,
+  PYTHON_TEST_RUNNER_LABELS,
+  PYTHON_TEST_RUNNERS,
+  PYTHON_VERSION_LABELS,
+  PYTHON_VERSIONS,
   RUNTIME_LABELS,
+  STACK_SIDE_LABELS,
+  TYPESCRIPT_VERSION_LABELS,
+  TYPESCRIPT_VERSIONS,
+  UI_LANGUAGES,
+  type Language,
+  type LanguageToolchain,
   type OptionalModule,
+  type StackSide,
 } from "@/lib/constants";
 import type { Templates } from "@/lib/load-templates";
 import {
@@ -34,6 +62,7 @@ import {
   isApiChoiceFixed,
   normalizeSelections,
 } from "@/lib/selection-rules";
+import { defaultToolchain, replaceToolchain, type ToolchainPatch } from "@/lib/toolchain";
 import { UI_TEXT } from "@/lib/ui-text";
 import { hasErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
 
@@ -79,9 +108,11 @@ const TEXT_FIELDS: TextFieldSpec[] = [
 const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
   ...TEXT_FIELDS.map((field) => field.name),
   "exposesApi",
+  "backendLanguages",
   "runtime",
   "backendFramework",
   "frontend",
+  "uiLanguages",
   "modules",
   "linePercent",
   "branchPercent",
@@ -157,6 +188,235 @@ function SelectField<T extends string>({ name, label, value, options, labels, er
   );
 }
 
+type SyncLanguage = "typescript" | "javascript";
+
+function ToolchainSelect<T extends string>({
+  id,
+  label,
+  value,
+  options,
+  labels,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: T;
+  options: readonly T[];
+  labels: Record<T, string>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} value={value} onChange={(event) => onChange(event.target.value as T)}>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {labels[option]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function toolchainControlId(side: StackSide, language: Language, field: string) {
+  return `field-${side}-${language}-${field}`;
+}
+
+function toolchainControlLabel(side: StackSide, language: Language, field: string) {
+  return `${STACK_SIDE_LABELS[side]} ${LANGUAGE_LABELS[language]} ${field}`;
+}
+
+function ToolchainOptions({
+  side,
+  entry,
+  onChange,
+}: {
+  side: StackSide;
+  entry: Exclude<LanguageToolchain, { language: "other" }>;
+  onChange: (patch: ToolchainPatch, syncLanguage?: SyncLanguage) => void;
+}) {
+  const language = entry.language;
+  const syncLanguage: SyncLanguage | undefined =
+    language === "typescript" || language === "javascript" ? language : undefined;
+
+  if (entry.language === "typescript" || entry.language === "javascript") {
+    return (
+      <>
+        {entry.language === "typescript" && (
+          <ToolchainSelect
+            id={toolchainControlId(side, language, "languageVersion")}
+            label={toolchainControlLabel(side, language, "language version")}
+            value={entry.languageVersion}
+            options={TYPESCRIPT_VERSIONS}
+            labels={TYPESCRIPT_VERSION_LABELS}
+            onChange={(languageVersion) => onChange({ languageVersion })}
+          />
+        )}
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "nodeVersion")}
+          label={toolchainControlLabel(side, language, "Node.js version")}
+          value={entry.nodeVersion}
+          options={NODE_VERSIONS}
+          labels={NODE_VERSION_LABELS}
+          onChange={(nodeVersion) => onChange({ nodeVersion }, syncLanguage)}
+        />
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "packageManager")}
+          label={toolchainControlLabel(side, language, "package manager")}
+          value={entry.packageManager}
+          options={JS_PACKAGE_MANAGERS}
+          labels={JS_PACKAGE_MANAGER_LABELS}
+          onChange={(packageManager) => onChange({ packageManager }, syncLanguage)}
+        />
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "testRunner")}
+          label={toolchainControlLabel(side, language, "test runner")}
+          value={entry.testRunner}
+          options={JS_TEST_RUNNERS}
+          labels={JS_TEST_RUNNER_LABELS}
+          onChange={(testRunner) => onChange({ testRunner }, syncLanguage)}
+        />
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "linter")}
+          label={toolchainControlLabel(side, language, "linter")}
+          value={entry.linter}
+          options={JS_LINTERS}
+          labels={JS_LINTER_LABELS}
+          onChange={(linter) => onChange({ linter }, syncLanguage)}
+        />
+      </>
+    );
+  }
+
+  if (entry.language === "java") {
+    return (
+      <>
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "languageVersion")}
+          label={toolchainControlLabel(side, language, "language version")}
+          value={entry.languageVersion}
+          options={JAVA_VERSIONS}
+          labels={JAVA_VERSION_LABELS}
+          onChange={(languageVersion) => onChange({ languageVersion })}
+        />
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "packageManager")}
+          label={toolchainControlLabel(side, language, "package manager")}
+          value={entry.packageManager}
+          options={JAVA_PACKAGE_MANAGERS}
+          labels={JAVA_PACKAGE_MANAGER_LABELS}
+          onChange={(packageManager) => onChange({ packageManager })}
+        />
+        <ToolchainSelect
+          id={toolchainControlId(side, language, "linter")}
+          label={toolchainControlLabel(side, language, "linter")}
+          value={entry.linter}
+          options={JAVA_LINTERS}
+          labels={JAVA_LINTER_LABELS}
+          onChange={(linter) => onChange({ linter })}
+        />
+        <p className="hint">{UI_TEXT.hints.junit}</p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ToolchainSelect
+        id={toolchainControlId(side, language, "languageVersion")}
+        label={toolchainControlLabel(side, language, "language version")}
+        value={entry.languageVersion}
+        options={PYTHON_VERSIONS}
+        labels={PYTHON_VERSION_LABELS}
+        onChange={(languageVersion) => onChange({ languageVersion })}
+      />
+      <ToolchainSelect
+        id={toolchainControlId(side, language, "packageManager")}
+        label={toolchainControlLabel(side, language, "package manager")}
+        value={entry.packageManager}
+        options={PYTHON_PACKAGE_MANAGERS}
+        labels={PYTHON_PACKAGE_MANAGER_LABELS}
+        onChange={(packageManager) => onChange({ packageManager })}
+      />
+      <ToolchainSelect
+        id={toolchainControlId(side, language, "testRunner")}
+        label={toolchainControlLabel(side, language, "test runner")}
+        value={entry.testRunner}
+        options={PYTHON_TEST_RUNNERS}
+        labels={PYTHON_TEST_RUNNER_LABELS}
+        onChange={(testRunner) => onChange({ testRunner })}
+      />
+      <ToolchainSelect
+        id={toolchainControlId(side, language, "linter")}
+        label={toolchainControlLabel(side, language, "linter")}
+        value={entry.linter}
+        options={PYTHON_LINTERS}
+        labels={PYTHON_LINTER_LABELS}
+        onChange={(linter) => onChange({ linter })}
+      />
+    </>
+  );
+}
+
+function StackLanguages({
+  side,
+  languages,
+  entries,
+  error,
+  onToggle,
+  onChange,
+}: {
+  side: StackSide;
+  languages: readonly Language[];
+  entries: LanguageToolchain[];
+  error?: string;
+  onToggle: (language: Language, checked: boolean) => void;
+  onChange: (language: Language, patch: ToolchainPatch, syncLanguage?: SyncLanguage) => void;
+}) {
+  const fieldName = side === "ui" ? "uiLanguages" : "backendLanguages";
+  const sharesManifest =
+    entries.some((entry) => entry.language === "typescript") &&
+    entries.some((entry) => entry.language === "javascript");
+  const hintId = `${side}-shared-manifest`;
+
+  return (
+    <fieldset
+      id={fieldId(fieldName)}
+      tabIndex={-1}
+      aria-describedby={describedBy(sharesManifest && hintId, error && `${fieldId(fieldName)}-error`)}
+    >
+      <legend>{side === "ui" ? UI_TEXT.legends.uiLanguages : UI_TEXT.legends.backendLanguages}</legend>
+      {languages.map((language) => {
+        const entry = entries.find((item) => item.language === language);
+        return (
+          <div key={language}>
+            <div className="field">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={entry !== undefined}
+                  onChange={(event) => onToggle(language, event.target.checked)}
+                />{" "}
+                {`${STACK_SIDE_LABELS[side]} ${LANGUAGE_LABELS[language]}`}
+              </label>
+            </div>
+            {entry && entry.language !== "other" && (
+              <ToolchainOptions side={side} entry={entry} onChange={(patch, syncLanguage) => onChange(language, patch, syncLanguage)} />
+            )}
+          </div>
+        );
+      })}
+      {sharesManifest && (
+        <p id={hintId} className="hint">
+          {UI_TEXT.hints.sharedManifest}
+        </p>
+      )}
+      <ErrorText name={fieldName} error={error} />
+    </fieldset>
+  );
+}
+
 export default function RequirementsBuilder({ templates }: { templates: Templates }) {
   const [config, setConfig] = useState<ProjectConfig>(defaultConfig);
   const [errors, setErrors] = useState<ValidationErrors>({});
@@ -178,6 +438,32 @@ export default function RequirementsBuilder({ templates }: { templates: Template
 
   const updateModule = (key: OptionalModule, checked: boolean) =>
     setConfig((current) => normalizeSelections({ ...current, modules: { ...current.modules, [key]: checked } }));
+
+  const toggleLanguage = (side: StackSide, language: Language, checked: boolean) =>
+    setConfig((current) => {
+      const key = side === "ui" ? "uiLanguages" : "backendLanguages";
+      const existing = current[key];
+      const without = existing.filter((entry) => entry.language !== language);
+      const sibling = language === "typescript" ? "javascript" : language === "javascript" ? "typescript" : undefined;
+      const siblingExists = sibling !== undefined && existing.some((entry) => entry.language === sibling);
+      return normalizeSelections(
+        { ...current, [key]: checked ? [...without, defaultToolchain(language)] : without },
+        {
+          syncSide: side,
+          // A newly checked language adopts the toolchain already chosen for its sibling.
+          syncLanguage: checked && siblingExists ? sibling : undefined,
+        },
+      );
+    });
+
+  const changeToolchain = (side: StackSide, language: Language, patch: ToolchainPatch, syncLanguage?: SyncLanguage) =>
+    setConfig((current) => {
+      const key = side === "ui" ? "uiLanguages" : "backendLanguages";
+      return normalizeSelections(
+        { ...current, [key]: replaceToolchain(current[key], language, patch) },
+        { syncSide: side, syncLanguage },
+      );
+    });
 
   const updateCoverage = (patch: Partial<ProjectConfig["coverage"]>) =>
     setConfig((current) => ({ ...current, coverage: { ...current.coverage, ...patch } }));
@@ -290,7 +576,6 @@ export default function RequirementsBuilder({ templates }: { templates: Template
 
   const runtimes = allowedRuntimes(config);
   const backendFrameworks = allowedBackendFrameworks(config);
-  const packageManager = DEFAULT_PACKAGE_MANAGERS[config.language];
   const hasDocument = markdown.length > 0;
   const edited = assembled !== null && markdown !== assembled.markdown;
   const stale = assembled !== null && !configsMatch(config, assembled.config);
@@ -381,18 +666,13 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             labels={APP_TYPE_LABELS}
             onChange={(appType) => updateSelection({ appType })}
           />
-          <SelectField
-            name="language"
-            label={UI_TEXT.fields.primaryLanguage}
-            value={config.language}
-            options={LANGUAGES}
-            labels={LANGUAGE_LABELS}
-            hint={
-              packageManager
-                ? UI_TEXT.hints.packageManager(packageManager)
-                : UI_TEXT.hints.noLanguageConventions
-            }
-            onChange={(language) => updateSelection({ language })}
+          <StackLanguages
+            side="backend"
+            languages={BACKEND_LANGUAGES}
+            entries={config.backendLanguages}
+            error={errors.backendLanguages}
+            onToggle={(language, checked) => toggleLanguage("backend", language, checked)}
+            onChange={(language, patch, syncLanguage) => changeToolchain("backend", language, patch, syncLanguage)}
           />
 
           {isApiChoiceFixed(config) ? (
@@ -439,15 +719,25 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             />
           )}
           {config.appType === "web-app" && (
-            <SelectField
-              name="frontend"
-              label={UI_TEXT.fields.frontendFramework}
-              value={config.frontend}
-              options={allowedFrontends(config)}
-              labels={FRONTEND_LABELS}
-              error={errors.frontend}
-              onChange={(frontend) => updateSelection({ frontend })}
-            />
+            <>
+              <SelectField
+                name="frontend"
+                label={UI_TEXT.fields.frontendFramework}
+                value={config.frontend}
+                options={allowedFrontends(config)}
+                labels={FRONTEND_LABELS}
+                error={errors.frontend}
+                onChange={(frontend) => updateSelection({ frontend })}
+              />
+              <StackLanguages
+                side="ui"
+                languages={UI_LANGUAGES}
+                entries={config.uiLanguages}
+                error={errors.uiLanguages}
+                onToggle={(language, checked) => toggleLanguage("ui", language, checked)}
+                onChange={(language, patch, syncLanguage) => changeToolchain("ui", language, patch, syncLanguage)}
+              />
+            </>
           )}
         </fieldset>
 

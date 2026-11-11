@@ -1,5 +1,5 @@
 import type { ProjectConfig } from "./config";
-import type { SectionId } from "./constants";
+import { LANGUAGE_LABELS, STACK_SIDE_LABELS, type SectionId, type StackSide } from "./constants";
 
 export type ModuleCategory =
   | "business"
@@ -28,6 +28,33 @@ export type RequirementModule = {
 
 const always = () => true;
 
+function languageModule(
+  language: "typescript" | "javascript" | "java" | "python",
+  side: StackSide,
+): RequirementModule {
+  return {
+    id: `${language}-${side}`,
+    title: `${LANGUAGE_LABELS[language]} ${STACK_SIDE_LABELS[side]} toolchain`,
+    version: "2.0.0",
+    category: "language",
+    section: "stack",
+    file: `languages/${language}.md`,
+    appliesTo: (config) =>
+      (side === "ui" ? config.uiLanguages : config.backendLanguages).some((entry) => entry.language === language),
+  };
+}
+
+function languageModules(): RequirementModule[] {
+  return [
+    languageModule("typescript", "ui"),
+    languageModule("javascript", "ui"),
+    languageModule("java", "backend"),
+    languageModule("python", "backend"),
+    languageModule("typescript", "backend"),
+    languageModule("javascript", "backend"),
+  ];
+}
+
 // Array order is the stable output order within each section.
 export const MODULES: RequirementModule[] = [
   {
@@ -48,46 +75,11 @@ export const MODULES: RequirementModule[] = [
     file: "general/engineering-core.md",
     appliesTo: always,
   },
-  {
-    id: "java-17-maven",
-    title: "Java 17 with Maven",
-    version: "1.0.0",
-    category: "language",
-    section: "stack",
-    file: "languages/java-17-maven.md",
-    appliesTo: (config) => config.language === "java",
-  },
-  {
-    id: "python-uv",
-    title: "Python with uv",
-    version: "1.0.0",
-    category: "language",
-    section: "stack",
-    file: "languages/python-uv.md",
-    appliesTo: (config) => config.language === "python",
-  },
-  {
-    id: "typescript-yarn",
-    title: "TypeScript with Yarn",
-    version: "1.0.0",
-    category: "language",
-    section: "stack",
-    file: "languages/typescript-yarn.md",
-    appliesTo: (config) => config.language === "typescript",
-  },
-  {
-    id: "javascript-yarn",
-    title: "JavaScript with Yarn",
-    version: "1.0.0",
-    category: "language",
-    section: "stack",
-    file: "languages/javascript-yarn.md",
-    appliesTo: (config) => config.language === "javascript",
-  },
+  ...languageModules(),
   {
     id: "nodejs-runtime",
     title: "Node.js runtime",
-    version: "1.0.0",
+    version: "1.1.0",
     category: "runtime",
     section: "stack",
     file: "runtime/nodejs-runtime.md",
@@ -96,7 +88,7 @@ export const MODULES: RequirementModule[] = [
   {
     id: "spring-boot",
     title: "Spring Boot service",
-    version: "1.0.0",
+    version: "1.1.0",
     category: "backend",
     section: "stack",
     file: "frameworks/spring-boot.md",
@@ -105,7 +97,7 @@ export const MODULES: RequirementModule[] = [
   {
     id: "fastapi",
     title: "FastAPI service",
-    version: "1.0.0",
+    version: "1.1.0",
     category: "backend",
     section: "stack",
     file: "frameworks/fastapi.md",

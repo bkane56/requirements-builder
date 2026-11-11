@@ -6,7 +6,17 @@
   "stretchGoals": "- Low-stock email alerts.",
   "mode": "project",
   "appType": "rest-api",
-  "language": "typescript",
+  "uiLanguages": [],
+  "backendLanguages": [
+    {
+      "language": "typescript",
+      "packageManager": "yarn",
+      "languageVersion": "7.0",
+      "nodeVersion": "26",
+      "testRunner": "vitest",
+      "linter": "eslint-prettier"
+    }
+  ],
   "runtime": "nodejs",
   "backendFramework": "nodejs-api",
   "frontend": "none",

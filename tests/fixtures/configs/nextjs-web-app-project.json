@@ -6,7 +6,17 @@
   "stretchGoals": "",
   "mode": "project",
   "appType": "web-app",
-  "language": "typescript",
+  "uiLanguages": [
+    {
+      "language": "typescript",
+      "packageManager": "yarn",
+      "languageVersion": "7.0",
+      "nodeVersion": "26",
+      "testRunner": "vitest",
+      "linter": "eslint-prettier"
+    }
+  ],
+  "backendLanguages": [],
   "runtime": "none",
   "backendFramework": "none",
   "frontend": "nextjs",

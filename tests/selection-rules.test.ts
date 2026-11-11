@@ -7,28 +7,44 @@ import {
   isApiChoiceFixed,
   normalizeSelections,
 } from "../lib/selection-rules";
+import { defaultToolchain } from "../lib/toolchain";
 
 const config = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({ ...defaultConfig, ...overrides });
 
+const backend = (...languages: Parameters<typeof defaultToolchain>[0][]) => languages.map((language) => defaultToolchain(language));
+
 describe("allowed options", () => {
-  it("offers the Node.js runtime only for TypeScript and JavaScript", () => {
-    expect(allowedRuntimes(config({ language: "typescript" }))).toEqual(["none", "nodejs"]);
-    expect(allowedRuntimes(config({ language: "javascript" }))).toEqual(["none", "nodejs"]);
+  it("offers the Node.js runtime only for backend TypeScript and JavaScript", () => {
+    expect(allowedRuntimes(config({ backendLanguages: backend("typescript") }))).toEqual(["none", "nodejs"]);
+    expect(allowedRuntimes(config({ backendLanguages: backend("javascript") }))).toEqual(["none", "nodejs"]);
+    expect(allowedRuntimes(config({ uiLanguages: backend("typescript"), appType: "web-app" }))).toEqual(["none"]);
     for (const language of ["java", "python", "other"] as const) {
-      expect(allowedRuntimes(config({ language }))).toEqual(["none"]);
+      expect(allowedRuntimes(config({ backendLanguages: backend(language) }))).toEqual(["none"]);
     }
   });
 
   it("offers backend frameworks only when an HTTP API is included, matched to language and runtime", () => {
-    expect(allowedBackendFrameworks(config({ language: "java", exposesApi: false }))).toEqual(["none"]);
-    expect(allowedBackendFrameworks(config({ language: "java", exposesApi: true }))).toEqual(["none", "spring-boot"]);
-    expect(allowedBackendFrameworks(config({ language: "python", exposesApi: true }))).toEqual(["none", "fastapi"]);
-    expect(allowedBackendFrameworks(config({ language: "typescript", exposesApi: true }))).toEqual(["none"]);
-    expect(allowedBackendFrameworks(config({ language: "typescript", runtime: "nodejs", exposesApi: true }))).toEqual([
+    expect(allowedBackendFrameworks(config({ backendLanguages: backend("java"), exposesApi: false }))).toEqual(["none"]);
+    expect(allowedBackendFrameworks(config({ backendLanguages: backend("java"), exposesApi: true }))).toEqual([
       "none",
-      "nodejs-api",
+      "spring-boot",
     ]);
-    expect(allowedBackendFrameworks(config({ language: "other", exposesApi: true }))).toEqual(["none"]);
+    expect(allowedBackendFrameworks(config({ backendLanguages: backend("python"), exposesApi: true }))).toEqual([
+      "none",
+      "fastapi",
+    ]);
+    expect(allowedBackendFrameworks(config({ backendLanguages: backend("java", "python"), exposesApi: true }))).toEqual([
+      "none",
+      "spring-boot",
+      "fastapi",
+    ]);
+    expect(allowedBackendFrameworks(config({ backendLanguages: backend("typescript"), exposesApi: true }))).toEqual(["none"]);
+    expect(
+      allowedBackendFrameworks(
+        config({ backendLanguages: backend("typescript"), runtime: "nodejs", exposesApi: true }),
+      ),
+    ).toEqual(["none", "nodejs-api"]);
+    expect(allowedBackendFrameworks(config({ backendLanguages: backend("other"), exposesApi: true }))).toEqual(["none"]);
   });
 
   it("offers frontend frameworks only for Web App projects", () => {
@@ -49,7 +65,7 @@ describe("allowed options", () => {
 describe("normalizeSelections", () => {
   const nodeApi = config({
     appType: "rest-api",
-    language: "typescript",
+    backendLanguages: backend("typescript"),
     runtime: "nodejs",
     backendFramework: "nodejs-api",
     exposesApi: true,
@@ -61,7 +77,7 @@ describe("normalizeSelections", () => {
   });
 
   it("resets the Node.js runtime and Node API framework when the language changes to Java", () => {
-    const next = normalizeSelections({ ...nodeApi, language: "java" });
+    const next = normalizeSelections({ ...nodeApi, backendLanguages: backend("java") });
     expect(next.runtime).toBe("none");
     expect(next.backendFramework).toBe("none");
     expect(next.exposesApi).toBe(true);
@@ -98,6 +114,83 @@ describe("normalizeSelections", () => {
     const withNext = normalizeSelections({ ...webApp, frontend: "nextjs" });
     expect(withNext.frontend).toBe("nextjs");
     expect(normalizeSelections({ ...withNext, appType: "cli-library" }).frontend).toBe("none");
+  });
+
+  it("clears Spring Boot when Java is removed and FastAPI when Python is removed", () => {
+    const spring = normalizeSelections(
+      config({ appType: "rest-api", exposesApi: true, backendLanguages: backend("java"), backendFramework: "spring-boot" }),
+    );
+    expect(normalizeSelections({ ...spring, backendLanguages: [] }).backendFramework).toBe("none");
+
+    const fastapi = normalizeSelections(
+      config({
+        appType: "ai-agent",
+        exposesApi: true,
+        backendLanguages: backend("python"),
+        backendFramework: "fastapi",
+      }),
+    );
+    expect(normalizeSelections({ ...fastapi, backendLanguages: backend("java") }).backendFramework).toBe("none");
+  });
+
+  it("clears UI languages when the app type is not a Web App", () => {
+    const next = normalizeSelections(
+      config({ appType: "rest-api", uiLanguages: backend("typescript"), backendLanguages: backend("java") }),
+    );
+    expect(next.uiLanguages).toEqual([]);
+    expect(next.backendLanguages).toEqual(backend("java"));
+  });
+
+  it("repairs mismatched JavaScript and TypeScript package managers by copying TypeScript", () => {
+    const next = normalizeSelections(
+      config({
+        backendLanguages: [
+          defaultToolchain("typescript"),
+          { ...defaultToolchain("javascript"), packageManager: "npm", nodeVersion: "24", testRunner: "jest", linter: "biome" },
+        ],
+      }),
+    );
+    expect(next.backendLanguages.map((entry) => entry.language)).toEqual(["typescript", "javascript"]);
+    expect(next.backendLanguages[1]).toMatchObject({
+      packageManager: "yarn",
+      nodeVersion: "26",
+      testRunner: "vitest",
+      linter: "eslint-prettier",
+    });
+  });
+
+  it("copies shared fields from the language that just changed", () => {
+    const next = normalizeSelections(
+      config({
+        backendLanguages: [
+          defaultToolchain("typescript"),
+          { ...defaultToolchain("javascript"), packageManager: "npm", testRunner: "jest" },
+        ],
+      }),
+      { syncSide: "backend", syncLanguage: "javascript" },
+    );
+    expect(next.backendLanguages[0]).toMatchObject({ packageManager: "npm", testRunner: "jest", languageVersion: "7.0" });
+    expect(next.backendLanguages[1]).toMatchObject({ packageManager: "npm", testRunner: "jest" });
+  });
+
+  it("replaces an unsupported package manager with the language default", () => {
+    const next = normalizeSelections(
+      config({
+        backendLanguages: [
+          { language: "java", packageManager: "yarn", languageVersion: "17", linter: "spotless" } as unknown as ReturnType<
+            typeof defaultToolchain
+          >,
+        ],
+      }),
+    );
+    expect(next.backendLanguages).toEqual(backend("java"));
+  });
+
+  it("sorts a newly checked language into catalog order and keeps its default toolchain", () => {
+    const next = normalizeSelections(
+      config({ backendLanguages: [defaultToolchain("javascript"), defaultToolchain("java")] }),
+    );
+    expect(next.backendLanguages).toEqual(backend("java", "javascript"));
   });
 
   it("does not change user-entered text", () => {

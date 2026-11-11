@@ -6,7 +6,16 @@
   "stretchGoals": "Draft a suggested reply for low-priority tickets.",
   "mode": "fast",
   "appType": "ai-agent",
-  "language": "python",
+  "uiLanguages": [],
+  "backendLanguages": [
+    {
+      "language": "python",
+      "packageManager": "uv",
+      "languageVersion": "3.13",
+      "testRunner": "pytest",
+      "linter": "ruff"
+    }
+  ],
   "runtime": "none",
   "backendFramework": "none",
   "frontend": "none",

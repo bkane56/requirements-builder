@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { INPUT_LIMITS } from "../lib/constants";
+import { defaultToolchain } from "../lib/toolchain";
 import { hasErrors, validateConfig, type ValidationErrors } from "../lib/validate-config";
+
+const backend = (...languages: Parameters<typeof defaultToolchain>[0][]) => languages.map((language) => defaultToolchain(language));
 
 const valid: ProjectConfig = {
   ...defaultConfig,
@@ -47,7 +50,7 @@ describe("validateConfig", () => {
     const errors = validateConfig({
       ...valid,
       appType: "rest-api",
-      language: "typescript",
+      backendLanguages: backend("typescript"),
       runtime: "nodejs",
       backendFramework: "nodejs-api",
       exposesApi: true,
@@ -57,11 +60,13 @@ describe("validateConfig", () => {
   });
 
   it.each([
-    [{ language: "java", runtime: "nodejs" }, "runtime", "The Node.js runtime requires TypeScript or JavaScript."],
-    [{ language: "python", exposesApi: true, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
-    [{ language: "java", exposesApi: true, backendFramework: "fastapi" }, "backendFramework", "FastAPI requires Python and an HTTP API."],
-    [{ language: "typescript", exposesApi: true, backendFramework: "nodejs-api" }, "backendFramework", "The Node.js API module requires the Node.js runtime and an HTTP API."],
-    [{ language: "java", exposesApi: false, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
+    [{ backendLanguages: backend("java"), runtime: "nodejs" }, "runtime", "The Node.js runtime requires TypeScript or JavaScript on the backend."],
+    [{ backendLanguages: backend("python"), exposesApi: true, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
+    [{ backendLanguages: backend("java"), exposesApi: true, backendFramework: "fastapi" }, "backendFramework", "FastAPI requires Python and an HTTP API."],
+    [{ backendLanguages: backend("typescript"), exposesApi: true, backendFramework: "nodejs-api" }, "backendFramework", "The Node.js API module requires the Node.js runtime and an HTTP API."],
+    [{ backendLanguages: backend("java"), exposesApi: false, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
+    [{ appType: "cli-library", uiLanguages: backend("typescript") }, "uiLanguages", "UI languages apply only to Web App projects."],
+    [{ backendLanguages: [{ language: "java", packageManager: "yarn", languageVersion: "17", linter: "spotless" }] }, "backendLanguages", "Backend language options must match the supported choices."],
     [{ appType: "cli-library", frontend: "nextjs" }, "frontend", "Frontend frameworks apply only to Web App projects."],
     [{ appType: "web-app", frontend: "none" }, "frontend", "Choose a frontend option for a Web App."],
     [{ appType: "rest-api", exposesApi: false }, "exposesApi", "REST API projects must include an HTTP API."],

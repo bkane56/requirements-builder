@@ -12,7 +12,6 @@ export const UI_TEXT = {
     stretchGoals: "Stretch goals (optional)",
     stretchGoalsHint: "Goals to attempt only after all must-have requirements are verified.",
     applicationType: "Application type",
-    primaryLanguage: "Primary language",
     runtime: "Runtime",
     backendFramework: "Backend framework",
     frontendFramework: "Frontend framework",
@@ -25,12 +24,15 @@ export const UI_TEXT = {
   legends: {
     mode: "Mode",
     technology: "Technology",
+    uiLanguages: "UI languages",
+    backendLanguages: "Backend languages",
     apiDocumentation: "API documentation",
     testing: "Testing and quality",
   },
   hints: {
-    noLanguageConventions: "No language conventions are included for Other.",
-    packageManager: (name: string) => `Package manager: ${name} (fixed default; selection is not yet supported).`,
+    sharedManifest:
+      "JavaScript and TypeScript on this side share one package manifest. Package manager, Node.js version, test runner, and linter stay in sync.",
+    junit: "Test runner: JUnit 5.",
     fixedHttpApi: (label: string, included: boolean) =>
       `${label} projects ${included ? "always include" : "do not include"} an HTTP API.`,
     testingAlwaysIncluded: "Unit tests and local build verification are always included.",
@@ -78,7 +80,10 @@ export const VALIDATION_TEXT = {
   stretchGoalsTooLong: (max: number) => `Stretch goals must be ${max} characters or fewer.`,
   httpApiRequired: (label: string) => `${label} projects must include an HTTP API.`,
   httpApiForbidden: (label: string) => `${label} projects cannot include an HTTP API.`,
-  nodeRuntime: "The Node.js runtime requires TypeScript or JavaScript.",
+  nodeRuntime: "The Node.js runtime requires TypeScript or JavaScript on the backend.",
+  uiLanguagesOnlyWebApp: "UI languages apply only to Web App projects.",
+  uiLanguages: "UI language options must match the supported choices.",
+  backendLanguages: "Backend language options must match the supported choices.",
   springBoot: "Spring Boot requires Java and an HTTP API.",
   fastapi: "FastAPI requires Python and an HTTP API.",
   nodeApi: "The Node.js API module requires the Node.js runtime and an HTTP API.",

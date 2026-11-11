@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { configsMatch, defaultConfig, type ProjectConfig } from "../lib/config";
+import { defaultToolchain } from "../lib/toolchain";
 
 const sample: ProjectConfig = {
   ...defaultConfig,
@@ -18,6 +19,16 @@ describe("configsMatch", () => {
     const changed = { ...sample, projectName: "Receipt Tracker " };
     expect(configsMatch(sample, changed)).toBe(false);
     expect(configsMatch(sample, { ...changed, projectName: sample.projectName })).toBe(true);
+  });
+
+  it("detects a toolchain change and matches the same toolchain built twice", () => {
+    const java = { ...sample, backendLanguages: [defaultToolchain("java")] };
+    const gradle = {
+      ...java,
+      backendLanguages: [{ ...defaultToolchain("java"), packageManager: "gradle" as const }],
+    };
+    expect(configsMatch(java, gradle)).toBe(false);
+    expect(configsMatch(java, { ...java, backendLanguages: [defaultToolchain("java")] })).toBe(true);
   });
 
   it("detects a module flag change", () => {

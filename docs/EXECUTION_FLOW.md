@@ -71,17 +71,18 @@ Text fields call `update`, which replaces one `config` property. Mode calls `upd
 
 ## 3. Technology selection and normalization
 
-Application type, language, runtime, backend framework, frontend, the HTTP API checkbox, and optional module checkboxes call `updateSelection` or `updateModule`. Both build the next `ProjectConfig` and pass it through `normalizeSelections` in [`lib/selection-rules.ts`](../lib/selection-rules.ts) before `setConfig`. Normalization is synchronous and does not touch the document.
+Application type, UI and backend language checkboxes, toolchain selects, runtime, backend framework, frontend, the HTTP API checkbox, and optional module checkboxes call `updateSelection`, `toggleLanguage`, `changeToolchain`, or `updateModule`. Each builds the next `ProjectConfig` and passes it through `normalizeSelections` in [`lib/selection-rules.ts`](../lib/selection-rules.ts) before `setConfig`. Normalization is synchronous and does not touch the document.
 
 `normalizeSelections` returns a new config in this order:
 
 1. `exposesApi` becomes `FIXED_API_BY_APP_TYPE[appType]` when that app type has a fixed value. REST API is always true. CLI / Library is always false. Other app types keep the current boolean.
-2. If `runtime` is not in `allowedRuntimes`, it becomes `"none"`. Node.js is offered only when `language` is TypeScript or JavaScript.
-3. If `backendFramework` is not in `allowedBackendFrameworks`, it becomes `"none"`. A framework is offered only when `exposesApi` is true, and then only Spring Boot for Java, FastAPI for Python, or the Node.js API module for the Node.js runtime.
-4. If `frontend` is not in `allowedFrontends`, a Web App becomes `"no-preference"` and every other app type becomes `"none"`.
-5. If `exposesApi` is false, the `openapi` and `postman` flags are set to false.
+2. `backendLanguages` is coerced to the backend catalog: unknown languages are dropped, unsupported option values become that language's default, duplicates collapse, and the list is sorted Java, Python, TypeScript, JavaScript, Other. When both TypeScript and JavaScript are present, package manager, Node.js version, test runner, and linter are copied from the language that just changed, or from TypeScript when no language was named. `uiLanguages` gets the same treatment for TypeScript, JavaScript, and Other, and is cleared unless the app type is Web App.
+3. If `runtime` is not in `allowedRuntimes`, it becomes `"none"`. Node.js is offered only when backend TypeScript or JavaScript is checked. A UI language does not offer the runtime.
+4. If `backendFramework` is not in `allowedBackendFrameworks`, it becomes `"none"`. A framework is offered only when `exposesApi` is true, and then only Spring Boot when backend Java is checked, FastAPI when backend Python is checked, or the Node.js API module for the Node.js runtime. The form still stores one framework even when more than one language is checked.
+5. If `frontend` is not in `allowedFrontends`, a Web App becomes `"no-preference"` and every other app type becomes `"none"`.
+6. If `exposesApi` is false, the `openapi` and `postman` flags are set to false.
 
-The render uses the same helpers to decide what is visible. `isApiChoiceFixed` replaces the HTTP API checkbox with a hint. The runtime and backend selects render only when more than one option exists. The frontend select renders only for `appType === "web-app"`. The API documentation fieldset renders only when `exposesApi` is true. The package manager is not a field. `DEFAULT_PACKAGE_MANAGERS` supplies a hint and, later, a metadata line.
+The render uses the same helpers to decide what is visible. `isApiChoiceFixed` replaces the HTTP API checkbox with a hint. The backend language fieldset is always shown. Checking a language reveals that language's toolchain selects, already filled with defaults. Java shows JUnit 5 as text rather than a select. The UI language fieldset renders only for `appType === "web-app"`, next to the frontend select. The runtime and backend selects render only when more than one option exists. The API documentation fieldset renders only when `exposesApi` is true. JavaScript and TypeScript on the same side share one package manifest, so those four shared selects stay in sync. The two sides do not sync. Checking the second of those languages adopts the toolchain already chosen for the first.
 
 [`tests/selection-rules.test.ts`](../tests/selection-rules.test.ts) checks the allowed sets and each reset. [`tests/requirements-builder.test.tsx`](../tests/requirements-builder.test.tsx) (`conditional controls`, `compatibility resets`) checks the same behavior through the form.
 
@@ -107,11 +108,11 @@ UI coverage is the `assembly` and `editable document and stale preview` blocks i
 
 - Required project name and business requirements. `trim` decides that a value is blank, so whitespace-only text fails. The stored text is not rewritten.
 - Maximum lengths from `INPUT_LIMITS`: project name 120, description 1000, and the three long fields 20000. The inputs also set `maxLength`, so a person typing in the form cannot pass those limits. The function still enforces them for a config built in code.
-- Fixed HTTP API mismatches, a Node.js runtime on a non-Node language, a backend framework that `allowedBackendFrameworks` rejects, a frontend that `allowedFrontends` rejects, API module flags while `exposesApi` is false, and, when coverage is enabled, line and branch targets that are not whole numbers from 0 to 100. Disabled coverage does not validate the numbers. Line and branch errors are separate keys.
+- Fixed HTTP API mismatches, UI languages on a project that is not a Web App, a toolchain value outside the catalog, a Node.js runtime without backend TypeScript or JavaScript, a backend framework that `allowedBackendFrameworks` rejects, a frontend that `allowedFrontends` rejects, API module flags while `exposesApi` is false, and, when coverage is enabled, line and branch targets that are not whole numbers from 0 to 100. Disabled coverage does not validate the numbers. Line and branch errors are separate keys. UI and backend toolchain errors are separate keys.
 
 `hasErrors` is `Object.keys(errors).length > 0`.
 
-On failure, `ERROR_FOCUS_ORDER` picks the first key that has a message: project name, description, business requirements, acceptance criteria, stretch goals, HTTP API, runtime, backend framework, frontend, API modules, line target, branch target. `fieldId` turns that key into `field-<name>`, and `document.getElementById(...).focus()` runs. The API modules target is the fieldset `field-modules` (`tabIndex={-1}`). If a key is invalid but its control is not rendered, the focus call does nothing. The form normally avoids that by normalizing selections before submit.
+On failure, `ERROR_FOCUS_ORDER` picks the first key that has a message: project name, description, business requirements, acceptance criteria, stretch goals, HTTP API, backend languages, runtime, backend framework, frontend, UI languages, API modules, line target, branch target. `fieldId` turns that key into `field-<name>`, and `document.getElementById(...).focus()` runs. The language and API module targets are fieldsets (`tabIndex={-1}`). If a key is invalid but its control is not rendered, the focus call does nothing. The form normally avoids that by normalizing selections before submit.
 
 [`tests/validation.test.ts`](../tests/validation.test.ts) covers accepted configs, required fields, lengths, incompatible selections, and separate coverage errors. The UI tests `reports missing required fields` and `focuses the line target when both coverage targets are invalid` cover focus.
 
@@ -123,7 +124,7 @@ Each `RequirementModule` has an id, title, version, category, `section`, `file`,
 
 - Always: `business-core`, `engineering-core`, `unit-tests`, `local-build-run`, `definition-of-done`.
 - Mode: `fast-delivery` or `project-delivery`, plus `project-extended` only in Project Mode.
-- Language, runtime, backend framework, and frontend match the corresponding config field.
+- Language modules are one per side: `typescript-ui`, `javascript-ui`, `java-backend`, `python-backend`, `typescript-backend`, and `javascript-backend`. Each applies when that language is checked on that side. UI and backend copies share a template file and receive different placeholder values. Runtime, backend framework, and frontend still match the corresponding config field.
 - `agent-tool-calling` matches an AI Agent app type.
 - `golden-dataset`, `persistence-optional`, `integration-tests`, and `security-baseline` match their module flags. Golden dataset and security start enabled in `defaultConfig`.
 - `coverage-targets` matches `coverage.enabled`.
@@ -135,7 +136,7 @@ Each `RequirementModule` has an id, title, version, category, `section`, `file`,
 
 `assembleRequirements(config, templates)` is synchronous and deterministic. It does not read the clock, randomize, or mutate `config` or `templates`.
 
-`placeholderValues` builds `{ lineCoverage, branchCoverage }` by stringifying the two coverage percents. Those are the only keys in `TEMPLATE_PLACEHOLDERS`. The record is built even when the coverage module is omitted.
+`placeholderValues` builds the coverage percents, the backend Node.js version (or `LTS` when no backend JavaScript or TypeScript toolchain exists), and the Spring Boot and FastAPI start commands from the backend toolchain. A language module then merges the sentences and commands for that side's toolchain, so one language's install command is not applied to another language. The keys are `TEMPLATE_PLACEHOLDERS` in [`lib/constants.ts`](../lib/constants.ts). The record is built even when a module that uses a key is omitted.
 
 The function starts `parts` with `# Project Requirements`. It then walks `SECTIONS` from [`lib/constants.ts`](../lib/constants.ts). For each section it concatenates `userBlocks(...)` and one `moduleBlock` for every resolved module whose `section` matches. A section with no blocks is omitted. The parts are joined with a blank line, and the result ends with one newline.
 
@@ -143,7 +144,7 @@ The function starts `parts` with `# Project Requirements`. It then walks `SECTIO
 
 - Metadata: project name, mode, the technology summary from `technologySummary`, and a line stating that assembly was deterministic. A non-blank description is added under its own heading.
 - Functional requirements and acceptance criteria: the user string, or a fixed missing-text sentence when the string is blank.
-- Assumptions: open questions for a blank business requirement, blank acceptance criteria, language Other, or frontend No preference. No questions means the section is omitted.
+- Assumptions: open questions for a blank business requirement, blank acceptance criteria, no backend language, a backend Other choice, a Web App with no UI language, a UI Other choice, different Node.js versions on the two sides, or frontend No preference. No questions means the section is omitted.
 - Implementation: the stretch-goal string, or a fixed sentence when it is blank. Delivery modules for the selected mode are appended in the same section.
 - Included modules: one bullet per resolved module, with id, version, and title.
 

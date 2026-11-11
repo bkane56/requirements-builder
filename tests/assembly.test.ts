@@ -4,6 +4,9 @@ import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { MISSING_TEXT, NO_STRETCH_GOALS, OPEN_QUESTIONS, SECTIONS } from "../lib/constants";
 import { loadTemplates } from "../lib/load-templates";
 import { MODULES } from "../lib/module-registry";
+import { defaultToolchain } from "../lib/toolchain";
+
+const backend = (...languages: Parameters<typeof defaultToolchain>[0][]) => languages.map((language) => defaultToolchain(language));
 
 const templates = loadTemplates();
 
@@ -12,7 +15,7 @@ const config = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
   projectName: "Receipt Tracker",
   businessRequirements: "Users can upload a receipt and see its total.",
   acceptanceCriteria: "Uploading a valid receipt shows the total within 2 seconds.",
-  language: "typescript",
+  backendLanguages: backend("typescript"),
   ...overrides,
 });
 
@@ -116,12 +119,14 @@ describe("assembleRequirements", () => {
 
   it("flags an unspecified language and frontend as open questions", () => {
     const markdown = assembleRequirements(
-      config({ language: "other", appType: "web-app", frontend: "no-preference" }),
+      config({ backendLanguages: [], uiLanguages: [], appType: "web-app", frontend: "no-preference" }),
       templates,
     );
-    expect(markdown).toContain(`- ${OPEN_QUESTIONS.language}`);
+    expect(markdown).toContain(`- ${OPEN_QUESTIONS.backendLanguage}`);
+    expect(markdown).toContain(`- ${OPEN_QUESTIONS.uiLanguage}`);
     expect(markdown).toContain(`- ${OPEN_QUESTIONS.frontend}`);
-    expect(markdown).not.toContain("- Package manager:");
+    expect(markdown).toContain("- Backend languages: None selected");
+    expect(markdown).toContain("- UI languages: None selected");
   });
 
   it("omits the assumptions section when nothing is missing", () => {
@@ -161,7 +166,7 @@ describe("technology module selection", () => {
     const markdown = assembleRequirements(
       config({
         appType: "rest-api",
-        language: "java",
+        backendLanguages: backend("java"),
         exposesApi: true,
         backendFramework: "spring-boot",
         modules: modules({ openapi: true, postman: true }),
@@ -169,11 +174,12 @@ describe("technology module selection", () => {
       templates,
     );
     const ids = includedModuleIds(markdown);
-    expect(ids).toEqual(expect.arrayContaining(["java-17-maven", "spring-boot", "openapi-swagger", "postman"]));
-    for (const id of ["python-uv", "fastapi", "typescript-yarn", "javascript-yarn", "nodejs-runtime", "nodejs-api"]) {
+    expect(ids).toEqual(expect.arrayContaining(["java-backend", "spring-boot", "openapi-swagger", "postman"]));
+    for (const id of ["python-backend", "fastapi", "typescript-backend", "typescript-ui", "javascript-backend", "nodejs-runtime", "nodejs-api"]) {
       expect(ids).not.toContain(id);
     }
-    expect(markdown).toContain("- Package manager: Maven (default for Java)");
+    expect(markdown).toContain("- Backend languages: Java 17, Maven, JUnit 5, Spotless");
+    expect(markdown).toContain("./mvnw spring-boot:run");
     expect(markdown).not.toMatch(/\buv\b|yarn|Node\.js/i);
   });
 
@@ -181,14 +187,14 @@ describe("technology module selection", () => {
     const markdown = assembleRequirements(
       config({
         appType: "ai-agent",
-        language: "python",
+        backendLanguages: backend("python"),
         exposesApi: false,
         modules: modules({ openapi: true, postman: true }),
       }),
       templates,
     );
     const ids = includedModuleIds(markdown);
-    expect(ids).toEqual(expect.arrayContaining(["python-uv", "agent-tool-calling"]));
+    expect(ids).toEqual(expect.arrayContaining(["python-backend", "agent-tool-calling"]));
     expect(ids).not.toContain("openapi-swagger");
     expect(ids).not.toContain("postman");
     expect(headings(markdown)).not.toContain("API Contract and Documentation");
@@ -200,13 +206,86 @@ describe("technology module selection", () => {
       templates,
     );
     const ids = includedModuleIds(markdown);
-    expect(ids).toEqual(expect.arrayContaining(["typescript-yarn", "nodejs-runtime", "nodejs-api"]));
+    expect(ids).toEqual(expect.arrayContaining(["typescript-backend", "nodejs-runtime", "nodejs-api"]));
+    expect(markdown).toContain("Run on Node.js 26");
     expect(markdown).toContain("- Runtime: Node.js");
     expect(markdown).not.toMatch(/Maven|mvnw|Spring|\buv\b|pytest|Pydantic/);
   });
 
+  it("uses npm commands for an npm toolchain and does not emit Yarn commands", () => {
+    const markdown = assembleRequirements(
+      config({ backendLanguages: [{ ...defaultToolchain("typescript"), packageManager: "npm" }] }),
+      templates,
+    );
+    expect(markdown).toContain("npm ci");
+    expect(markdown).toContain("commit `package-lock.json`");
+    expect(markdown).toContain("Do not create `yarn.lock`");
+    expect(markdown).not.toContain("yarn install --frozen-lockfile");
+  });
+
+  it("uses Gradle commands for a Gradle and Spring Boot toolchain", () => {
+    const markdown = assembleRequirements(
+      config({
+        appType: "rest-api",
+        exposesApi: true,
+        backendFramework: "spring-boot",
+        backendLanguages: [{ ...defaultToolchain("java"), packageManager: "gradle" }],
+      }),
+      templates,
+    );
+    expect(markdown).toContain("./gradlew clean check");
+    expect(markdown).toContain("./gradlew bootRun");
+    expect(markdown).not.toContain("./mvnw");
+  });
+
+  it("includes a UI TypeScript module and a backend Java module in one document", () => {
+    const markdown = assembleRequirements(
+      config({
+        appType: "web-app",
+        frontend: "nextjs",
+        uiLanguages: backend("typescript"),
+        backendLanguages: backend("java"),
+      }),
+      templates,
+    );
+    const ids = includedModuleIds(markdown);
+    expect(ids).toContain("typescript-ui");
+    expect(ids).toContain("java-backend");
+    expect(markdown).toContain("These conventions apply to the UI package.");
+    expect(markdown).toContain("These conventions apply to the Backend package.");
+    expect(markdown).toContain("yarn install --frozen-lockfile");
+    expect(markdown).toContain("./mvnw clean verify");
+  });
+
+  it("asks which UI language to use when a Web App has none", () => {
+    const markdown = assembleRequirements(
+      config({ appType: "web-app", frontend: "nextjs", uiLanguages: [], backendLanguages: backend("java") }),
+      templates,
+    );
+    expect(markdown).toContain(`- ${OPEN_QUESTIONS.uiLanguage}`);
+  });
+
+  it("keeps UI and backend toolchains distinct when both sides use TypeScript", () => {
+    const markdown = assembleRequirements(
+      config({
+        appType: "web-app",
+        frontend: "react-vite",
+        uiLanguages: [{ ...defaultToolchain("typescript"), packageManager: "npm", nodeVersion: "24" }],
+        backendLanguages: backend("typescript"),
+      }),
+      templates,
+    );
+    expect(markdown).toContain("npm ci");
+    expect(markdown).toContain("yarn install --frozen-lockfile");
+    expect(markdown).toContain("- UI and backend packages: separate. Each side keeps its own package manifest.");
+    expect(markdown).toContain(`- ${OPEN_QUESTIONS.nodeVersions}`);
+  });
+
   it("Next.js web app includes frontend and accessibility guidance without a database mandate", () => {
-    const markdown = assembleRequirements(config({ appType: "web-app", frontend: "nextjs" }), templates);
+    const markdown = assembleRequirements(
+      config({ appType: "web-app", frontend: "nextjs", uiLanguages: backend("typescript"), backendLanguages: [] }),
+      templates,
+    );
     const ids = includedModuleIds(markdown);
     expect(ids).toContain("nextjs-react");
     expect(ids).not.toContain("react-vite");
