@@ -19,7 +19,7 @@
   ],
   "runtime": "nodejs",
   "backendFramework": "nodejs-api",
-  "frontend": "none",
+  "uiFrameworks": [],
   "exposesApi": true,
   "modules": {
     "integrationTests": true,

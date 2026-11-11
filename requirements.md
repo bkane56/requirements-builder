@@ -88,7 +88,7 @@ Do not choose additional dependencies without documenting the reason.
 2. User chooses **Fast Mode** or **Project Mode**.
 3. User chooses application type: REST API, AI Agent, Web App, CLI/Library, or Other.
 4. User checks backend languages (Java, Python, TypeScript, JavaScript, Other) and, for a Web App, UI languages (TypeScript, JavaScript, Other). Each checked language reveals its package manager, language version, test runner, and linter, filled with defaults.
-5. User chooses applicable framework/runtime choices (Node.js when the backend includes JavaScript or TypeScript; Next.js or React + Vite for a browser UI) and optional testing, persistence, API documentation, and security modules. The form still offers one backend framework.
+5. User chooses applicable framework/runtime choices (Node.js when the backend includes JavaScript or TypeScript; Next.js, React + Vite, or both for a Web App) and optional testing, persistence, API documentation, and security modules. A Web App can include a backend as well. The form still offers one backend framework.
 6. UI identifies incompatible or irrelevant combinations; dependent options appear only when applicable.
 7. User clicks **Assemble Draft**.
 8. The system generates a deterministic Markdown document, visibly listing included module identifiers/versions.
@@ -118,7 +118,7 @@ Fast Mode should produce a useful draft with only a few interactions. It must **
 
 - **Language:** Separate UI and backend selections. Backend languages are Java, Python, TypeScript, JavaScript, and Other. UI languages are TypeScript, JavaScript, and Other, and they appear only for a Web App. Several languages may be checked on one side. Do not conflate a language with a runtime.
 - **Runtime/backend:** Offer Node.js only when the backend includes JavaScript or TypeScript. A UI language does not offer the Node.js runtime. The form still stores one backend framework.
-- **Frontend:** Only show if the application includes a user interface; use Next.js, React + Vite, or No preference. Avoid presenting a separate browser UI requirement for a pure API or CLI.
+- **Frontend:** Only show for a Web App. Offer Next.js and React + Vite as checkboxes, so both can be selected. Next.js uses the App Router. React + Vite offers React Router, TanStack Router, or no router. Both offer client state (None, Redux Toolkit, Zustand, or React context) and server data (None or TanStack Query). A Web App can also include backend languages and one backend framework, so a full-stack application is one configuration. Avoid presenting a separate browser UI requirement for a pure API or CLI.
 - **Coverage:** Offer simple optional numeric targets for statement/line and branch coverage. Suggested initial values (e.g., 85% line, 80% branch) may be changed or disabled. Generated docs should emphasize functional/business-logic verification and clear exclusions for generated code and configuration, not encourage gaming the numbers.
 - **Dependency/build tooling:** Each checked language stores its own package manager and toolchain. JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter because they share one manifest. The UI and backend sides do not share a manifest. Never generate commands for an unsupported configuration. Defaults are Yarn, Maven, and uv.
 
@@ -142,8 +142,8 @@ Initial modules:
 | Language | `javascript-ui`, `javascript-backend` | JavaScript, Node.js version, package manager, test runner, and linter. The same template is emitted once per side |
 | Runtime | `nodejs-runtime` | Node.js server runtime, async/await, error handling, environment variables and logging; not a programming language |
 | Backend | `nodejs-api` | Node.js backend API conventions, minimal framework-neutral guidance (Express/Fastify/NestJS variations deferred) |
-| Frontend | `react-vite` | React + Vite browser UI conventions, accessibility and UI testing |
-| Frontend | `nextjs-react` | Next.js/React architecture, accessibility, UI testing |
+| Frontend | `react-vite` | React + Vite, its router, client state, and server data choices, plus accessibility and UI testing |
+| Frontend | `nextjs-react` | Next.js App Router, client state, and server data choices, plus accessibility and UI testing |
 | Backend | `spring-boot` | Spring Boot service conventions, conditional REST support |
 | Backend | `fastapi` | FastAPI, Pydantic, conditional REST support |
 | Testing | `unit-tests` | Behavioral unit tests |
@@ -161,7 +161,7 @@ Initial modules:
 - Selected modules may not be silently omitted or rewritten to remove mandatory requirements.
 - The UI must disable or flag incompatible combinations (e.g., Maven-only rules with Python).
 - Distinguish language, runtime, framework, and dependency manager as separate concepts in configuration. Node.js is a runtime; do not present it as a language.
-- Show frontend choices only for projects requiring a UI. For MVP, offer Next.js and React + Vite (or "No preference"), without requiring a frontend for backend/CLI projects.
+- Show UI framework choices only for a Web App. Next.js and React + Vite can both be checked, and each stores its own options. Do not require a UI framework for backend or CLI projects. A Web App may include a backend in the same configuration.
 - Store the selected package manager, language version, test runner, and linter on each checked language. Defaults are Maven for Java, uv for Python, and Yarn for JavaScript and TypeScript. JavaScript and TypeScript on one side share the package manager and the other manifest-level choices. UI and backend copies of the same language are separate packages.
 - Keep optional coverage thresholds configurable; defaults should be guidance, not misleading guarantees of correctness. Include meaningful tests for critical business logic even when coverage numbers are met.
 - Only show OpenAPI/Postman as relevant when an API surface exists; do not assume every app needs an API.

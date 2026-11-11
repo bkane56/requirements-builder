@@ -2,14 +2,16 @@ import { defaultConfig, type ProjectConfig } from "./config";
 import {
   APP_TYPES,
   BACKEND_FRAMEWORKS,
-  FRONTENDS,
   MODES,
   OPTIONAL_MODULES,
   RUNTIMES,
+  UI_FRAMEWORKS,
   type LanguageToolchain,
   type OptionalModule,
+  type UiFramework,
 } from "./constants";
 import { normalizeSelections } from "./selection-rules";
+import { defaultUiFramework } from "./ui-framework";
 
 export const CONFIG_FORMAT = "requirements-builder-config";
 export const CONFIG_FORMAT_VERSION = 1;
@@ -99,7 +101,7 @@ function orderedConfig(config: ProjectConfig): ProjectConfig {
     backendLanguages: config.backendLanguages,
     runtime: config.runtime,
     backendFramework: config.backendFramework,
-    frontend: config.frontend,
+    uiFrameworks: config.uiFrameworks,
     exposesApi: config.exposesApi,
     modules: Object.fromEntries(OPTIONAL_MODULES.map((key) => [key, config.modules[key]])) as ProjectConfig["modules"],
     coverage: {
@@ -117,17 +119,18 @@ function readConfig(value: unknown): ProjectConfig | null {
   const coverage = readCoverage(value.coverage);
   const uiLanguages = readStack(value.uiLanguages);
   const backendLanguages = readStack(value.backendLanguages);
+  const uiFrameworks = readUiFrameworks(value);
   if (
     !text ||
     !modules ||
     !coverage ||
     !uiLanguages ||
     !backendLanguages ||
+    !uiFrameworks ||
     !includes(MODES, value.mode) ||
     !includes(APP_TYPES, value.appType) ||
     !includes(RUNTIMES, value.runtime) ||
     !includes(BACKEND_FRAMEWORKS, value.backendFramework) ||
-    !includes(FRONTENDS, value.frontend) ||
     typeof value.exposesApi !== "boolean"
   ) {
     return null;
@@ -142,11 +145,21 @@ function readConfig(value: unknown): ProjectConfig | null {
     backendLanguages,
     runtime: value.runtime,
     backendFramework: value.backendFramework,
-    frontend: value.frontend,
+    uiFrameworks,
     exposesApi: value.exposesApi,
     modules,
     coverage,
   };
+}
+
+function readUiFrameworks(value: Record<string, unknown>): UiFramework[] | null {
+  if (value.uiFrameworks !== undefined) {
+    if (!Array.isArray(value.uiFrameworks) || !value.uiFrameworks.every((entry) => isRecord(entry))) return null;
+    return value.uiFrameworks as UiFramework[];
+  }
+  if (value.frontend === "none" || value.frontend === "no-preference") return [];
+  if (includes(UI_FRAMEWORKS, value.frontend)) return [defaultUiFramework(value.frontend)];
+  return null;
 }
 
 function readTextFields(value: Record<string, unknown>): Pick<ProjectConfig, (typeof TEXT_FIELDS)[number]> | null {

@@ -3,11 +3,11 @@ import {
   API_MODULES,
   FIXED_API_BY_APP_TYPE,
   type BackendFramework,
-  type Frontend,
   type Runtime,
   type StackSide,
 } from "./constants";
 import { hasLanguage, normalizeStack, type NormalizeStackOptions } from "./toolchain";
+import { normalizeUiFrameworks } from "./ui-framework";
 
 export type NormalizeOptions = {
   syncSide?: StackSide;
@@ -33,10 +33,6 @@ export function allowedBackendFrameworks(config: ProjectConfig): BackendFramewor
   return allowed;
 }
 
-export function allowedFrontends(config: ProjectConfig): Frontend[] {
-  return config.appType === "web-app" ? ["nextjs", "react-vite", "no-preference"] : ["none"];
-}
-
 // Resets selections that no longer apply after a parent choice changes. Order matters:
 // languages, then API inclusion, then runtime, then backend framework, because each depends on the previous.
 export function normalizeSelections(config: ProjectConfig, options: NormalizeOptions = {}): ProjectConfig {
@@ -53,15 +49,11 @@ export function normalizeSelections(config: ProjectConfig, options: NormalizeOpt
     backendLanguages: normalizeStack(config.backendLanguages, "backend", {
       syncLanguage: options.syncSide === "backend" ? options.syncLanguage : undefined,
     }),
+    uiFrameworks: config.appType === "web-app" ? normalizeUiFrameworks(config.uiFrameworks) : [],
   };
 
   if (!allowedRuntimes(next).includes(next.runtime)) next = { ...next, runtime: "none" };
   if (!allowedBackendFrameworks(next).includes(next.backendFramework)) next = { ...next, backendFramework: "none" };
-
-  const frontends = allowedFrontends(next);
-  if (!frontends.includes(next.frontend)) {
-    next = { ...next, frontend: next.appType === "web-app" ? "no-preference" : "none" };
-  }
 
   if (!exposesApi && API_MODULES.some((key) => next.modules[key])) {
     const modules = { ...next.modules };

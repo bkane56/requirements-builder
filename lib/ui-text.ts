@@ -16,7 +16,7 @@ export const UI_TEXT = {
     applicationType: "Application type",
     runtime: "Runtime",
     backendFramework: "Backend framework",
-    frontendFramework: "Frontend framework",
+    uiFrameworks: "UI frameworks",
     includesHttpApi: "Includes an HTTP API",
     codeCoverage: "Code coverage targets",
     lineCoverage: "Line coverage target (%)",
@@ -26,6 +26,7 @@ export const UI_TEXT = {
   legends: {
     mode: "Mode",
     technology: "Technology",
+    uiFrameworks: "UI frameworks",
     uiLanguages: "UI languages",
     backendLanguages: "Backend languages",
     apiDocumentation: "API documentation",
@@ -33,6 +34,8 @@ export const UI_TEXT = {
     configurationFile: "Configuration file",
   },
   hints: {
+    fullStack:
+      "Backend languages above stay available, so a Web App can include both a UI and a backend. Include an HTTP API to choose a backend framework.",
     sharedManifest:
       "JavaScript and TypeScript on this side share one package manifest. Package manager, Node.js version, test runner, and linter stay in sync.",
     junit: "Test runner: JUnit 5.",
@@ -103,8 +106,8 @@ export const VALIDATION_TEXT = {
   springBoot: "Spring Boot requires Java and an HTTP API.",
   fastapi: "FastAPI requires Python and an HTTP API.",
   nodeApi: "The Node.js API module requires the Node.js runtime and an HTTP API.",
-  frontendRequired: "Choose a frontend option for a Web App.",
-  frontendOnlyWebApp: "Frontend frameworks apply only to Web App projects.",
+  uiFrameworksOnlyWebApp: "UI frameworks apply only to Web App projects.",
+  uiFrameworks: "UI framework options must match the supported choices.",
   apiModulesRequireApi: "Swagger/OpenAPI and Postman require an HTTP API.",
   lineCoverage: "Line coverage target must be a whole number from 0 to 100.",
   branchCoverage: "Branch coverage target must be a whole number from 0 to 100.",

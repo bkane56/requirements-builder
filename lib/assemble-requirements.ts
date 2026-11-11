@@ -2,7 +2,6 @@ import type { ProjectConfig } from "./config";
 import {
   APP_TYPE_LABELS,
   BACKEND_FRAMEWORK_LABELS,
-  FRONTEND_LABELS,
   MISSING_TEXT,
   MODE_LABELS,
   NO_STRETCH_GOALS,
@@ -25,6 +24,7 @@ import {
   toolchainPlaceholderValues,
   toolchainSummary,
 } from "./toolchain";
+import { uiFrameworkPlaceholderValues, uiFrameworkSummary } from "./ui-framework";
 
 const PLACEHOLDER = /\{\{([^}]*)\}\}/g;
 
@@ -36,18 +36,28 @@ function formatStack(label: string, entries: LanguageToolchain[]): string {
 }
 
 function technologySummary(config: ProjectConfig): string[] {
+  const hasUi = config.uiFrameworks.length > 0 || config.uiLanguages.length > 0;
+  const hasBackend = config.backendLanguages.length > 0 || config.backendFramework !== "none";
   return [
     `- Application type: ${APP_TYPE_LABELS[config.appType]}`,
     ...(config.appType === "web-app" ? [formatStack("UI languages", config.uiLanguages)] : []),
+    ...(config.appType === "web-app" ? [formatUiFrameworks(config)] : []),
     formatStack("Backend languages", config.backendLanguages),
+    ...(config.appType === "web-app" && hasUi && hasBackend
+      ? ["- Full stack: this Web App includes both a UI and a backend."]
+      : []),
     ...(hasJavaScriptFamily(config.uiLanguages) && hasJavaScriptFamily(config.backendLanguages)
       ? ["- UI and backend packages: separate. Each side keeps its own package manifest."]
       : []),
     ...(config.runtime !== "none" ? [`- Runtime: ${RUNTIME_LABELS[config.runtime]}`] : []),
     ...(config.backendFramework !== "none" ? [`- Backend framework: ${BACKEND_FRAMEWORK_LABELS[config.backendFramework]}`] : []),
-    ...(config.frontend !== "none" ? [`- Frontend: ${FRONTEND_LABELS[config.frontend]}`] : []),
     `- HTTP API: ${config.exposesApi ? "Included" : "Not included"}`,
   ];
+}
+
+function formatUiFrameworks(config: ProjectConfig): string {
+  const choices = config.uiFrameworks.map(uiFrameworkSummary);
+  return `- UI frameworks: ${choices.length === 0 ? "None selected" : choices.join("; ")}`;
 }
 
 // User-entered text is inserted verbatim: never trimmed, escaped, or substituted.
@@ -89,7 +99,7 @@ function userBlocks(sectionId: SectionId, config: ProjectConfig, modules: Requir
       const uiNode = nodeVersionOf(config.uiLanguages);
       const backendNode = nodeVersionOf(config.backendLanguages);
       if (uiNode && backendNode && uiNode !== backendNode) questions.push(OPEN_QUESTIONS.nodeVersions);
-      if (config.frontend === "no-preference") questions.push(OPEN_QUESTIONS.frontend);
+      if (config.appType === "web-app" && config.uiFrameworks.length === 0) questions.push(OPEN_QUESTIONS.frontend);
       return questions.length === 0
         ? []
         : ["### Open questions", questions.map((question) => `- ${question}`).join("\n")];
@@ -118,6 +128,11 @@ function placeholderValues(config: ProjectConfig, module: RequirementModule): Re
     springRunCommand: springRunCommand(config.backendLanguages),
     apiStartCommand: apiStartCommand(config.backendLanguages),
   };
+  if (module.id === "nextjs-react" || module.id === "react-vite") {
+    const framework = module.id === "nextjs-react" ? "nextjs" : "react-vite";
+    const entry = config.uiFrameworks.find((item) => item.framework === framework);
+    return entry ? { ...values, ...uiFrameworkPlaceholderValues(entry) } : values;
+  }
   const match = LANGUAGE_MODULE_ID.exec(module.id);
   if (!match) return values;
   const side = match[2] as StackSide;

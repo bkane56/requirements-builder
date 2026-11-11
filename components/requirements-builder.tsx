@@ -21,7 +21,10 @@ import {
   APP_TYPES,
   BACKEND_FRAMEWORK_LABELS,
   BACKEND_LANGUAGES,
-  FRONTEND_LABELS,
+  CLIENT_STATE_LABELS,
+  CLIENT_STATES,
+  DATA_LIBRARY_LABELS,
+  DATA_LIBRARIES,
   INPUT_LIMITS,
   JAVA_LINTER_LABELS,
   JAVA_LINTERS,
@@ -51,26 +54,35 @@ import {
   PYTHON_TEST_RUNNERS,
   PYTHON_VERSION_LABELS,
   PYTHON_VERSIONS,
+  REACT_ROUTER_LABELS,
+  REACT_ROUTERS,
   RUNTIME_LABELS,
   STACK_SIDE_LABELS,
   TYPESCRIPT_VERSION_LABELS,
   TYPESCRIPT_VERSIONS,
+  UI_FRAMEWORK_LABELS,
+  UI_FRAMEWORKS,
   UI_LANGUAGES,
+  type ClientState,
+  type DataLibrary,
   type Language,
   type LanguageToolchain,
   type OptionalModule,
+  type ReactRouter,
   type StackSide,
+  type UiFramework,
+  type UiFrameworkId,
 } from "@/lib/constants";
 import type { Templates } from "@/lib/load-templates";
 import { moduleVersionMap } from "@/lib/module-registry";
 import {
   allowedBackendFrameworks,
-  allowedFrontends,
   allowedRuntimes,
   isApiChoiceFixed,
   normalizeSelections,
 } from "@/lib/selection-rules";
 import { defaultToolchain, replaceToolchain, type ToolchainPatch } from "@/lib/toolchain";
+import { defaultUiFramework, replaceUiFramework, type UiFrameworkPatch } from "@/lib/ui-framework";
 import { UI_TEXT } from "@/lib/ui-text";
 import { hasErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
 
@@ -126,7 +138,7 @@ const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
   "backendLanguages",
   "runtime",
   "backendFramework",
-  "frontend",
+  "uiFrameworks",
   "uiLanguages",
   "modules",
   "linePercent",
@@ -432,6 +444,133 @@ function StackLanguages({
   );
 }
 
+function frameworkControlId(framework: UiFrameworkId, field: string) {
+  return `field-${framework}-${field}`;
+}
+
+function FrameworkSelect<T extends string>({
+  framework,
+  field,
+  label,
+  value,
+  options,
+  labels,
+  onChange,
+}: {
+  framework: UiFrameworkId;
+  field: string;
+  label: string;
+  value: T;
+  options: readonly T[];
+  labels: Record<T, string>;
+  onChange: (value: T) => void;
+}) {
+  const id = frameworkControlId(framework, field);
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} value={value} onChange={(event) => onChange(event.target.value as T)}>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {labels[option]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function FrameworkOptions({
+  entry,
+  onChange,
+}: {
+  entry: UiFramework;
+  onChange: (patch: UiFrameworkPatch) => void;
+}) {
+  const framework = entry.framework;
+  const label = UI_FRAMEWORK_LABELS[framework];
+  return (
+    <>
+      {entry.framework === "react-vite" ? (
+        <FrameworkSelect
+          framework={framework}
+          field="routing"
+          label={`${label} routing`}
+          value={entry.routing}
+          options={REACT_ROUTERS}
+          labels={REACT_ROUTER_LABELS}
+          onChange={(routing: ReactRouter) => onChange({ routing })}
+        />
+      ) : (
+        <p className="hint">Routing: Next.js App Router.</p>
+      )}
+      <FrameworkSelect
+        framework={framework}
+        field="state"
+        label={`${label} client state`}
+        value={entry.state}
+        options={CLIENT_STATES}
+        labels={CLIENT_STATE_LABELS}
+        onChange={(state: ClientState) => onChange({ state })}
+      />
+      <FrameworkSelect
+        framework={framework}
+        field="data"
+        label={`${label} server data`}
+        value={entry.dataLibrary}
+        options={DATA_LIBRARIES}
+        labels={DATA_LIBRARY_LABELS}
+        onChange={(dataLibrary: DataLibrary) => onChange({ dataLibrary })}
+      />
+    </>
+  );
+}
+
+function UiFrameworks({
+  entries,
+  error,
+  onToggle,
+  onChange,
+}: {
+  entries: UiFramework[];
+  error?: string;
+  onToggle: (framework: UiFrameworkId, checked: boolean) => void;
+  onChange: (framework: UiFrameworkId, patch: UiFrameworkPatch) => void;
+}) {
+  const hintId = "ui-framework-fullstack";
+  return (
+    <fieldset
+      id={fieldId("uiFrameworks")}
+      tabIndex={-1}
+      aria-describedby={describedBy(hintId, error && `${fieldId("uiFrameworks")}-error`)}
+    >
+      <legend>{UI_TEXT.legends.uiFrameworks}</legend>
+      <p id={hintId} className="hint">
+        {UI_TEXT.hints.fullStack}
+      </p>
+      {UI_FRAMEWORKS.map((framework) => {
+        const entry = entries.find((item) => item.framework === framework);
+        return (
+          <div key={framework}>
+            <div className="field">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={entry !== undefined}
+                  onChange={(event) => onToggle(framework, event.target.checked)}
+                />{" "}
+                {UI_FRAMEWORK_LABELS[framework]}
+              </label>
+            </div>
+            {entry && <FrameworkOptions entry={entry} onChange={(patch) => onChange(framework, patch)} />}
+          </div>
+        );
+      })}
+      <ErrorText name="uiFrameworks" error={error} />
+    </fieldset>
+  );
+}
+
 export default function RequirementsBuilder({ templates }: { templates: Templates }) {
   const [config, setConfig] = useState<ProjectConfig>(defaultConfig);
   const [errors, setErrors] = useState<ValidationErrors>({});
@@ -471,6 +610,23 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         },
       );
     });
+
+  const toggleUiFramework = (framework: UiFrameworkId, checked: boolean) =>
+    setConfig((current) => {
+      const without = current.uiFrameworks.filter((entry) => entry.framework !== framework);
+      return normalizeSelections({
+        ...current,
+        uiFrameworks: checked ? [...without, defaultUiFramework(framework)] : without,
+      });
+    });
+
+  const changeUiFramework = (framework: UiFrameworkId, patch: UiFrameworkPatch) =>
+    setConfig((current) =>
+      normalizeSelections({
+        ...current,
+        uiFrameworks: replaceUiFramework(current.uiFrameworks, framework, patch),
+      }),
+    );
 
   const changeToolchain = (side: StackSide, language: Language, patch: ToolchainPatch, syncLanguage?: SyncLanguage) =>
     setConfig((current) => {
@@ -788,14 +944,11 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           )}
           {config.appType === "web-app" && (
             <>
-              <SelectField
-                name="frontend"
-                label={UI_TEXT.fields.frontendFramework}
-                value={config.frontend}
-                options={allowedFrontends(config)}
-                labels={FRONTEND_LABELS}
-                error={errors.frontend}
-                onChange={(frontend) => updateSelection({ frontend })}
+              <UiFrameworks
+                entries={config.uiFrameworks}
+                error={errors.uiFrameworks}
+                onToggle={toggleUiFramework}
+                onChange={changeUiFramework}
               />
               <StackLanguages
                 side="ui"

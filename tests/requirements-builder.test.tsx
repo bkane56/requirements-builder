@@ -11,6 +11,7 @@ import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
 import { normalizeSelections } from "../lib/selection-rules";
 import { defaultToolchain } from "../lib/toolchain";
+import { defaultUiFramework } from "../lib/ui-framework";
 
 const templates = loadTemplates();
 
@@ -45,7 +46,7 @@ describe("conditional controls", () => {
     expect(field("Backend Other").checked).toBe(false);
     expect(maybeField("UI TypeScript")).toBeNull();
     expect(maybeField("Includes an HTTP API")).not.toBeNull();
-    for (const hidden of ["Runtime", "Backend framework", "Frontend framework", "Swagger / OpenAPI documentation", "Postman collection"]) {
+    for (const hidden of ["Runtime", "Backend framework", "Next.js", "React + Vite", "Swagger / OpenAPI documentation", "Postman collection"]) {
       expect(maybeField(hidden), hidden).toBeNull();
     }
     expect(maybeField("Line coverage target (%)")).not.toBeNull();
@@ -120,12 +121,52 @@ describe("conditional controls", () => {
     expect(maybeField("UI TypeScript package manager")).toBeNull();
   });
 
-  it("shows the frontend choice only for Web App, defaulting to No preference", () => {
+  it("shows UI framework checkboxes only for a Web App and keeps each framework's options separate", () => {
     change("Application type", "web-app");
-    expect(optionValues("Frontend framework")).toEqual(["nextjs", "react-vite", "no-preference"]);
-    expect(field("Frontend framework").value).toBe("no-preference");
+    expect(field("Next.js").checked).toBe(false);
+    expect(field("React + Vite").checked).toBe(false);
+    expect(screen.getByText(/both a UI and a backend/)).toBeTruthy();
+
+    fireEvent.click(field("Next.js"));
+    expect(maybeField("Next.js routing")).toBeNull();
+    expect(field("Next.js client state").value).toBe("none");
+    expect(optionValues("Next.js client state")).toEqual(["none", "redux-toolkit", "zustand", "context"]);
+    expect(field("Next.js server data").value).toBe("none");
+
+    fireEvent.click(field("React + Vite"));
+    expect(field("React + Vite routing").value).toBe("react-router");
+    expect(optionValues("React + Vite routing")).toEqual(["react-router", "tanstack-router", "none"]);
+    change("Next.js client state", "redux-toolkit");
+    change("React + Vite client state", "zustand");
+    expect(field("Next.js client state").value).toBe("redux-toolkit");
+    expect(field("React + Vite client state").value).toBe("zustand");
+
     change("Application type", "rest-api");
-    expect(maybeField("Frontend framework")).toBeNull();
+    expect(maybeField("Next.js")).toBeNull();
+    expect(maybeField("React + Vite")).toBeNull();
+  });
+
+  it("keeps a backend framework when a Web App also selects a UI framework", () => {
+    change("Application type", "web-app");
+    fireEvent.click(field("Backend Java"));
+    fireEvent.click(field("Includes an HTTP API"));
+    change("Backend framework", "spring-boot");
+    fireEvent.click(field("Next.js"));
+    change("Next.js client state", "redux-toolkit");
+
+    expect(field("Backend Java").checked).toBe(true);
+    expect(field("Backend framework").value).toBe("spring-boot");
+    expect(field("Next.js").checked).toBe(true);
+    expect(field("Next.js client state").value).toBe("redux-toolkit");
+
+    fillRequired();
+    assemble();
+    const document = preview();
+    expect(document).toContain("### Module: `nextjs-react`");
+    expect(document).toContain("### Module: `spring-boot`");
+    expect(document).toContain("### Module: `java-backend`");
+    expect(document).toContain("Use Redux Toolkit for shared client state.");
+    expect(document).toContain("- Full stack: this Web App includes both a UI and a backend.");
   });
 
   it("fixes the HTTP API choice for REST API and CLI projects", () => {
@@ -163,12 +204,12 @@ describe("compatibility resets", () => {
     expect(field("Runtime").value).toBe("none");
   });
 
-  it("clears the frontend and API documentation when the application type changes", () => {
+  it("clears the UI frameworks and API documentation when the application type changes", () => {
     change("Application type", "web-app");
-    change("Frontend framework", "nextjs");
+    fireEvent.click(field("Next.js"));
     change("Application type", "cli-library");
     change("Application type", "web-app");
-    expect(field("Frontend framework").value).toBe("no-preference");
+    expect(field("Next.js").checked).toBe(false);
 
     change("Application type", "rest-api");
     fireEvent.click(field("Swagger / OpenAPI documentation"));
@@ -801,7 +842,7 @@ describe("configuration import and export", () => {
       projectName: "Imported Ledger",
       businessRequirements: "Users can export a ledger.",
       appType: "web-app" as const,
-      frontend: "nextjs" as const,
+      uiFrameworks: [defaultUiFramework("nextjs")],
       uiLanguages: [defaultToolchain("typescript")],
       backendLanguages: [defaultToolchain("java")],
     };

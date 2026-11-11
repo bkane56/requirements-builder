@@ -1,7 +1,8 @@
 import type { ProjectConfig } from "./config";
 import { API_MODULES, APP_TYPE_LABELS, FIXED_API_BY_APP_TYPE, INPUT_LIMITS } from "./constants";
-import { allowedBackendFrameworks, allowedFrontends, allowedRuntimes } from "./selection-rules";
+import { allowedBackendFrameworks, allowedRuntimes } from "./selection-rules";
 import { isLegalStack } from "./toolchain";
+import { isLegalUiFrameworks } from "./ui-framework";
 import { VALIDATION_TEXT } from "./ui-text";
 
 // Line and branch targets are separate keys so each input can be marked and focused on its own.
@@ -45,9 +46,10 @@ function validateSelections(config: ProjectConfig, errors: ValidationErrors) {
     errors.backendFramework = BACKEND_FRAMEWORK_ERRORS[config.backendFramework];
   }
 
-  if (!allowedFrontends(config).includes(config.frontend)) {
-    errors.frontend =
-      config.appType === "web-app" ? VALIDATION_TEXT.frontendRequired : VALIDATION_TEXT.frontendOnlyWebApp;
+  if (config.appType !== "web-app" && config.uiFrameworks.length > 0) {
+    errors.uiFrameworks = VALIDATION_TEXT.uiFrameworksOnlyWebApp;
+  } else if (!isLegalUiFrameworks(config.uiFrameworks)) {
+    errors.uiFrameworks = VALIDATION_TEXT.uiFrameworks;
   }
 
   if (!config.exposesApi && API_MODULES.some((key) => config.modules[key])) {

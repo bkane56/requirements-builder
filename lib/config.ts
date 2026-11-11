@@ -3,13 +3,14 @@ import {
   OPTIONAL_MODULES,
   type AppType,
   type BackendFramework,
-  type Frontend,
   type LanguageToolchain,
   type Mode,
   type OptionalModule,
   type Runtime,
+  type UiFramework,
 } from "./constants";
 import { stacksEqual } from "./toolchain";
+import { uiFrameworksEqual } from "./ui-framework";
 
 export type ProjectConfig = {
   projectName: string;
@@ -23,7 +24,7 @@ export type ProjectConfig = {
   backendLanguages: LanguageToolchain[];
   runtime: Runtime;
   backendFramework: BackendFramework;
-  frontend: Frontend;
+  uiFrameworks: UiFramework[];
   exposesApi: boolean;
   modules: Record<OptionalModule, boolean>;
   coverage: { enabled: boolean; linePercent: number; branchPercent: number };
@@ -41,7 +42,7 @@ export const defaultConfig: ProjectConfig = {
   backendLanguages: [],
   runtime: "none",
   backendFramework: "none",
-  frontend: "none",
+  uiFrameworks: [],
   exposesApi: false,
   modules: {
     integrationTests: false,
@@ -67,7 +68,7 @@ export function configsMatch(left: ProjectConfig, right: ProjectConfig): boolean
     stacksEqual(left.backendLanguages, right.backendLanguages) &&
     left.runtime === right.runtime &&
     left.backendFramework === right.backendFramework &&
-    left.frontend === right.frontend &&
+    uiFrameworksEqual(left.uiFrameworks, right.uiFrameworks) &&
     left.exposesApi === right.exposesApi &&
     OPTIONAL_MODULES.every((key) => left.modules[key] === right.modules[key]) &&
     left.coverage.enabled === right.coverage.enabled &&

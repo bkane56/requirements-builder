@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { INPUT_LIMITS } from "../lib/constants";
 import { defaultToolchain } from "../lib/toolchain";
+import { defaultUiFramework } from "../lib/ui-framework";
 import { hasErrors, validateConfig, type ValidationErrors } from "../lib/validate-config";
 
 const backend = (...languages: Parameters<typeof defaultToolchain>[0][]) => languages.map((language) => defaultToolchain(language));
@@ -67,8 +68,15 @@ describe("validateConfig", () => {
     [{ backendLanguages: backend("java"), exposesApi: false, backendFramework: "spring-boot" }, "backendFramework", "Spring Boot requires Java and an HTTP API."],
     [{ appType: "cli-library", uiLanguages: backend("typescript") }, "uiLanguages", "UI languages apply only to Web App projects."],
     [{ backendLanguages: [{ language: "java", packageManager: "yarn", languageVersion: "17", linter: "spotless" }] }, "backendLanguages", "Backend language options must match the supported choices."],
-    [{ appType: "cli-library", frontend: "nextjs" }, "frontend", "Frontend frameworks apply only to Web App projects."],
-    [{ appType: "web-app", frontend: "none" }, "frontend", "Choose a frontend option for a Web App."],
+    [{ appType: "cli-library", uiFrameworks: [defaultUiFramework("nextjs")] }, "uiFrameworks", "UI frameworks apply only to Web App projects."],
+    [
+      {
+        appType: "web-app",
+        uiFrameworks: [{ framework: "react-vite", routing: "pages", state: "none", dataLibrary: "none" }],
+      },
+      "uiFrameworks",
+      "UI framework options must match the supported choices.",
+    ],
     [{ appType: "rest-api", exposesApi: false }, "exposesApi", "REST API projects must include an HTTP API."],
     [{ appType: "cli-library", exposesApi: true }, "exposesApi", "CLI / Library projects cannot include an HTTP API."],
     [{ exposesApi: false, modules: { ...defaultConfig.modules, postman: true } }, "modules", "Swagger/OpenAPI and Postman require an HTTP API."],

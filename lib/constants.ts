@@ -220,15 +220,55 @@ export const BACKEND_FRAMEWORK_LABELS: Record<BackendFramework, string> = {
   "nodejs-api": "Node.js API (framework-neutral)",
 };
 
-export const FRONTENDS = ["none", "nextjs", "react-vite", "no-preference"] as const;
-export type Frontend = (typeof FRONTENDS)[number];
+export const UI_FRAMEWORKS = ["nextjs", "react-vite"] as const;
+export type UiFrameworkId = (typeof UI_FRAMEWORKS)[number];
 
-export const FRONTEND_LABELS: Record<Frontend, string> = {
-  none: "None",
+export const UI_FRAMEWORK_LABELS: Record<UiFrameworkId, string> = {
   nextjs: "Next.js",
   "react-vite": "React + Vite",
-  "no-preference": "No preference",
 };
+
+export const CLIENT_STATES = ["none", "redux-toolkit", "zustand", "context"] as const;
+export type ClientState = (typeof CLIENT_STATES)[number];
+
+export const CLIENT_STATE_LABELS: Record<ClientState, string> = {
+  none: "None",
+  "redux-toolkit": "Redux Toolkit",
+  zustand: "Zustand",
+  context: "React context",
+};
+
+export const DATA_LIBRARIES = ["none", "tanstack-query"] as const;
+export type DataLibrary = (typeof DATA_LIBRARIES)[number];
+
+export const DATA_LIBRARY_LABELS: Record<DataLibrary, string> = {
+  none: "None",
+  "tanstack-query": "TanStack Query",
+};
+
+export const REACT_ROUTERS = ["react-router", "tanstack-router", "none"] as const;
+export type ReactRouter = (typeof REACT_ROUTERS)[number];
+
+export const REACT_ROUTER_LABELS: Record<ReactRouter, string> = {
+  "react-router": "React Router",
+  "tanstack-router": "TanStack Router",
+  none: "None",
+};
+
+export type NextJsFramework = {
+  framework: "nextjs";
+  state: ClientState;
+  dataLibrary: DataLibrary;
+};
+
+export type ReactViteFramework = {
+  framework: "react-vite";
+  routing: ReactRouter;
+  state: ClientState;
+  dataLibrary: DataLibrary;
+};
+
+export type UiFramework = NextJsFramework | ReactViteFramework;
 
 export const OPTIONAL_MODULES = [
   "integrationTests",
@@ -275,6 +315,9 @@ export const TEMPLATE_PLACEHOLDERS = [
   "linterSentence",
   "springRunCommand",
   "apiStartCommand",
+  "routingSentence",
+  "stateSentence",
+  "dataSentence",
 ] as const;
 export type TemplatePlaceholder = (typeof TEMPLATE_PLACEHOLDERS)[number];
 
@@ -326,7 +369,8 @@ export const OPEN_QUESTIONS = {
     'Which UI language and toolchain should be used for the "Other" selection? No conventions are included for that choice.',
   nodeVersions:
     "The UI and backend selections use different Node.js versions. Which version should each package target?",
-  frontend: "Which frontend framework should be used? No preference was selected.",
+  frontend:
+    "Which UI framework should be used? None was selected for this Web App, so no UI framework conventions are included.",
 } as const;
 
 export const NO_STRETCH_GOALS =

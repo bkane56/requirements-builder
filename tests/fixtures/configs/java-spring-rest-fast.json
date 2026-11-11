@@ -12,7 +12,7 @@
   ],
   "runtime": "none",
   "backendFramework": "spring-boot",
-  "frontend": "none",
+  "uiFrameworks": [],
   "exposesApi": true,
   "modules": {
     "integrationTests": true,

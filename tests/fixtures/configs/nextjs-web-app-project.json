@@ -19,7 +19,13 @@
   "backendLanguages": [],
   "runtime": "none",
   "backendFramework": "none",
-  "frontend": "nextjs",
+  "uiFrameworks": [
+    {
+      "framework": "nextjs",
+      "state": "none",
+      "dataLibrary": "none"
+    }
+  ],
   "exposesApi": false,
   "modules": {
     "integrationTests": false,

@@ -10,7 +10,7 @@
   "backendLanguages": [{ "language": "other" }],
   "runtime": "none",
   "backendFramework": "none",
-  "frontend": "none",
+  "uiFrameworks": [],
   "exposesApi": false,
   "modules": {
     "integrationTests": false,

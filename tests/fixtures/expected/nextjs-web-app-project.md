@@ -6,8 +6,8 @@
 - Mode: Project Mode
 - Application type: Web App
 - UI languages: TypeScript 7.0, Node.js 26, Yarn, Vitest, ESLint + Prettier
+- UI frameworks: Next.js (App Router, client state: None, server data: None)
 - Backend languages: None selected
-- Frontend: Next.js
 - HTTP API: Not included
 - Assembly: deterministic, generated without AI
 
@@ -68,9 +68,11 @@ Browser app for running sprint retrospectives.
 - Use Vitest as the test runner.
 - Use ESLint for linting and Prettier for formatting.
 
-### Module: `nextjs-react` v1.0.0
+### Module: `nextjs-react` v1.1.0
 
-- Use the Next.js App Router. Default to Server Components; use Client Components only where interactivity requires them.
+- Use the Next.js App Router. Default to Server Components; use Client Components only where interactivity requires them. Do not add React Router or another client router.
+- Do not add a client state library. Keep state in the component that owns it.
+- Do not add a data-fetching library unless a later requirement names one.
 - Keep business logic in plain modules outside React components so it can be unit tested.
 - Meet WCAG 2.2 AA: semantic markup, labeled controls, keyboard operation, visible focus, and clear error messages.
 - Test key user behaviors with React Testing Library, asserting outcomes rather than successful renders.
@@ -182,7 +184,7 @@ No stretch goals were provided. Treat every functional requirement above as must
 - `business-core` v1.0.0: Business requirements handling
 - `engineering-core` v1.0.0: Engineering core standards
 - `typescript-ui` v2.0.0: TypeScript UI toolchain
-- `nextjs-react` v1.0.0: Next.js and React frontend
+- `nextjs-react` v1.1.0: Next.js and React frontend
 - `project-extended` v1.0.0: Project Mode extended sections
 - `unit-tests` v1.0.0: Unit tests
 - `coverage-targets` v1.0.0: Coverage targets

@@ -14,6 +14,7 @@ import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
 import { normalizeSelections } from "../lib/selection-rules";
 import { defaultToolchain } from "../lib/toolchain";
+import { defaultUiFramework } from "../lib/ui-framework";
 
 const templates = loadTemplates();
 const versions = moduleVersionMap();
@@ -57,6 +58,23 @@ describe("configuration file", () => {
     expect(parsed.value.config.businessRequirements).toBe(config.businessRequirements);
     expect(parsed.value.config.uiLanguages).toEqual([]);
     expect(parsed.value.config.backendLanguages).toEqual([defaultToolchain("java")]);
+  });
+
+  it("imports an older file that stored one frontend value", () => {
+    const file = JSON.parse(serializeConfig(defaultConfig, versions)) as { config: Record<string, unknown> };
+    delete file.config.uiFrameworks;
+    file.config.appType = "web-app";
+    file.config.frontend = "react-vite";
+    const parsed = parseConfigText(JSON.stringify(file), versions);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.config.uiFrameworks).toEqual([defaultUiFramework("react-vite")]);
+
+    file.config.frontend = "no-preference";
+    const unspecified = parseConfigText(JSON.stringify(file), versions);
+    expect(unspecified.ok).toBe(true);
+    if (!unspecified.ok) return;
+    expect(unspecified.value.config.uiFrameworks).toEqual([]);
   });
 
   it("reports a template library change without changing the imported choices", () => {

@@ -5,6 +5,7 @@ import { MISSING_TEXT, NO_STRETCH_GOALS, OPEN_QUESTIONS, SECTIONS } from "../lib
 import { loadTemplates } from "../lib/load-templates";
 import { MODULES } from "../lib/module-registry";
 import { defaultToolchain } from "../lib/toolchain";
+import { defaultUiFramework } from "../lib/ui-framework";
 
 const backend = (...languages: Parameters<typeof defaultToolchain>[0][]) => languages.map((language) => defaultToolchain(language));
 
@@ -119,7 +120,7 @@ describe("assembleRequirements", () => {
 
   it("flags an unspecified language and frontend as open questions", () => {
     const markdown = assembleRequirements(
-      config({ backendLanguages: [], uiLanguages: [], appType: "web-app", frontend: "no-preference" }),
+      config({ backendLanguages: [], uiLanguages: [], uiFrameworks: [], appType: "web-app" }),
       templates,
     );
     expect(markdown).toContain(`- ${OPEN_QUESTIONS.backendLanguage}`);
@@ -242,7 +243,7 @@ describe("technology module selection", () => {
     const markdown = assembleRequirements(
       config({
         appType: "web-app",
-        frontend: "nextjs",
+        uiFrameworks: [defaultUiFramework("nextjs")],
         uiLanguages: backend("typescript"),
         backendLanguages: backend("java"),
       }),
@@ -255,11 +256,12 @@ describe("technology module selection", () => {
     expect(markdown).toContain("These conventions apply to the Backend package.");
     expect(markdown).toContain("yarn install --frozen-lockfile");
     expect(markdown).toContain("./mvnw clean verify");
+    expect(markdown).toContain("- Full stack: this Web App includes both a UI and a backend.");
   });
 
   it("asks which UI language to use when a Web App has none", () => {
     const markdown = assembleRequirements(
-      config({ appType: "web-app", frontend: "nextjs", uiLanguages: [], backendLanguages: backend("java") }),
+      config({ appType: "web-app", uiFrameworks: [defaultUiFramework("nextjs")], uiLanguages: [], backendLanguages: backend("java") }),
       templates,
     );
     expect(markdown).toContain(`- ${OPEN_QUESTIONS.uiLanguage}`);
@@ -269,7 +271,7 @@ describe("technology module selection", () => {
     const markdown = assembleRequirements(
       config({
         appType: "web-app",
-        frontend: "react-vite",
+        uiFrameworks: [defaultUiFramework("react-vite")],
         uiLanguages: [{ ...defaultToolchain("typescript"), packageManager: "npm", nodeVersion: "24" }],
         backendLanguages: backend("typescript"),
       }),
@@ -283,7 +285,7 @@ describe("technology module selection", () => {
 
   it("Next.js web app includes frontend and accessibility guidance without a database mandate", () => {
     const markdown = assembleRequirements(
-      config({ appType: "web-app", frontend: "nextjs", uiLanguages: backend("typescript"), backendLanguages: [] }),
+      config({ appType: "web-app", uiFrameworks: [defaultUiFramework("nextjs")], uiLanguages: backend("typescript"), backendLanguages: [] }),
       templates,
     );
     const ids = includedModuleIds(markdown);
@@ -291,6 +293,34 @@ describe("technology module selection", () => {
     expect(ids).not.toContain("react-vite");
     expect(ids).not.toContain("persistence-optional");
     expect(markdown).toContain("WCAG 2.2 AA");
+    expect(markdown).toContain("Do not add React Router or another client router.");
+    expect(markdown).toContain("Do not add a client state library.");
+    expect(markdown).not.toContain("- Full stack:");
+  });
+
+  it("keeps separate React options and includes the backend framework for a full-stack app", () => {
+    const markdown = assembleRequirements(
+      config({
+        appType: "web-app",
+        exposesApi: true,
+        backendFramework: "spring-boot",
+        backendLanguages: backend("java"),
+        uiLanguages: backend("typescript"),
+        uiFrameworks: [
+          { ...defaultUiFramework("nextjs"), state: "redux-toolkit", dataLibrary: "tanstack-query" },
+          { ...defaultUiFramework("react-vite"), routing: "tanstack-router", state: "zustand" },
+        ],
+      }),
+      templates,
+    );
+    const ids = includedModuleIds(markdown);
+    expect(ids).toEqual(expect.arrayContaining(["nextjs-react", "react-vite", "spring-boot", "java-backend", "typescript-ui"]));
+    expect(markdown).toContain("Use Redux Toolkit for shared client state.");
+    expect(markdown).toContain("Use TanStack Query for server data, cache, and request status.");
+    expect(markdown).toContain("Use TanStack Router for browser routes.");
+    expect(markdown).toContain("Use Zustand for shared client state.");
+    expect(markdown).toContain("Do not add React Router or another client router.");
+    expect(markdown).toContain("- Full stack: this Web App includes both a UI and a backend.");
   });
 
   it("CLI project includes no frontend or API modules", () => {

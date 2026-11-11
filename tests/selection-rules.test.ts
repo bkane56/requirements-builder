@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import {
   allowedBackendFrameworks,
-  allowedFrontends,
   allowedRuntimes,
   isApiChoiceFixed,
   normalizeSelections,
 } from "../lib/selection-rules";
 import { defaultToolchain } from "../lib/toolchain";
+import { defaultUiFramework } from "../lib/ui-framework";
 
 const config = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({ ...defaultConfig, ...overrides });
 
@@ -47,11 +47,21 @@ describe("allowed options", () => {
     expect(allowedBackendFrameworks(config({ backendLanguages: backend("other"), exposesApi: true }))).toEqual(["none"]);
   });
 
-  it("offers frontend frameworks only for Web App projects", () => {
-    expect(allowedFrontends(config({ appType: "web-app" }))).toEqual(["nextjs", "react-vite", "no-preference"]);
-    for (const appType of ["rest-api", "ai-agent", "cli-library", "other"] as const) {
-      expect(allowedFrontends(config({ appType }))).toEqual(["none"]);
-    }
+  it("keeps UI frameworks only on a Web App and leaves the backend in place", () => {
+    const fullStack = normalizeSelections(
+      config({
+        appType: "web-app",
+        exposesApi: true,
+        uiFrameworks: [defaultUiFramework("nextjs"), defaultUiFramework("react-vite")],
+        backendLanguages: backend("java"),
+        backendFramework: "spring-boot",
+      }),
+    );
+    expect(fullStack.uiFrameworks.map((entry) => entry.framework)).toEqual(["nextjs", "react-vite"]);
+    expect(fullStack.backendLanguages).toEqual(backend("java"));
+    expect(fullStack.backendFramework).toBe("spring-boot");
+    expect(normalizeSelections({ ...fullStack, appType: "cli-library" }).uiFrameworks).toEqual([]);
+    expect(normalizeSelections({ ...fullStack, appType: "cli-library" }).backendFramework).toBe("none");
   });
 
   it("fixes the API choice for REST API and CLI projects only", () => {
@@ -108,12 +118,20 @@ describe("normalizeSelections", () => {
     expect(next.backendFramework).toBe("none");
   });
 
-  it("defaults the frontend to No preference for Web App and resets it when leaving Web App", () => {
-    const webApp = normalizeSelections(config({ appType: "web-app" }));
-    expect(webApp.frontend).toBe("no-preference");
-    const withNext = normalizeSelections({ ...webApp, frontend: "nextjs" });
-    expect(withNext.frontend).toBe("nextjs");
-    expect(normalizeSelections({ ...withNext, appType: "cli-library" }).frontend).toBe("none");
+  it("repairs an illegal UI framework option without changing the other framework", () => {
+    const normalized = normalizeSelections(
+      config({
+        appType: "web-app",
+        uiFrameworks: [
+          { framework: "react-vite", routing: "pages", state: "redux-toolkit", dataLibrary: "none" },
+          { ...defaultUiFramework("nextjs"), state: "zustand" },
+        ] as unknown as ProjectConfig["uiFrameworks"],
+      }),
+    );
+    expect(normalized.uiFrameworks).toEqual([
+      { ...defaultUiFramework("nextjs"), state: "zustand" },
+      { ...defaultUiFramework("react-vite"), routing: "react-router", state: "redux-toolkit" },
+    ]);
   });
 
   it("clears Spring Boot when Java is removed and FastAPI when Python is removed", () => {
