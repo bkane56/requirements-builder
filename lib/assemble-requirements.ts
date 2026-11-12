@@ -16,6 +16,7 @@ import {
 } from "./constants";
 import type { Templates } from "./load-templates";
 import { resolveModules, type RequirementModule } from "./module-registry";
+import { hasBackendSelection, hasUserInterface } from "./selection-rules";
 import {
   apiStartCommand,
   hasJavaScriptFamily,
@@ -36,14 +37,12 @@ function formatStack(label: string, entries: LanguageToolchain[]): string {
 }
 
 function technologySummary(config: ProjectConfig): string[] {
-  const hasUi = config.uiFrameworks.length > 0 || config.uiLanguages.length > 0;
-  const hasBackend = config.backendLanguages.length > 0 || config.backendFramework !== "none";
   return [
     `- Application type: ${APP_TYPE_LABELS[config.appType]}`,
     ...(config.appType === "web-app" ? [formatStack("UI languages", config.uiLanguages)] : []),
     ...(config.appType === "web-app" ? [formatUiFrameworks(config)] : []),
     formatStack("Backend languages", config.backendLanguages),
-    ...(config.appType === "web-app" && hasUi && hasBackend
+    ...(config.appType === "web-app" && hasUserInterface(config) && hasBackendSelection(config)
       ? ["- Full stack: this Web App includes both a UI and a backend."]
       : []),
     ...(hasJavaScriptFamily(config.uiLanguages) && hasJavaScriptFamily(config.backendLanguages)

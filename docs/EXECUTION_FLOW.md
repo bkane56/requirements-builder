@@ -117,6 +117,14 @@ On failure, `ERROR_FOCUS_ORDER` picks the first key that has a message: project 
 
 [`tests/validation.test.ts`](../tests/validation.test.ts) covers accepted configs, required fields, lengths, incompatible selections, and separate coverage errors. The UI tests `reports missing required fields` and `focuses the line target when both coverage targets are invalid` cover focus.
 
+### Advisories
+
+[`lib/advisories.ts`](../lib/advisories.ts) `evaluateAdvisories` is a separate pure function. It does not call `validateConfig`, does not change `ProjectConfig`, and does not affect `assembleRequirements`. The form calls it on every render.
+
+The one rule recommends integration tests when a Web App has a UI (`hasUserInterface`) and an HTTP backend (`exposesApi` plus `hasBackendSelection`) while `modules.integrationTests` is false. A UI is a selected UI framework or UI language. A backend selection is a backend language or a backend framework. The recommendation is omitted for every other combination, including a REST API, a Web App with no HTTP API, and the same full-stack setup after integration tests are checked. Redux Toolkit and the wording of the business requirements do not create advisories.
+
+The Integration tests checkbox shows the recommendation directly underneath, prefixed `Recommendation:`. The checkbox `aria-describedby` points at `advisory-integration-tests-http-fullstack`. The note is not an alert and does not use `aria-invalid`. Checking the box, clearing the HTTP API, removing the UI or backend, or leaving Web App removes the note on the next render. Assembly is not required. The checkbox is the only control, and the advisory never changes it. An unresolved advisory still allows Assemble Draft, copy, and download. The sentence is not written into the Markdown document.
+
 ## 6. Module selection
 
 `assembleRequirements` calls `resolveModules(config)`, which returns `MODULES.filter((module) => module.appliesTo(config))`. Array order is the order of module blocks inside a section. `resolveModules` does not sort or deduplicate.

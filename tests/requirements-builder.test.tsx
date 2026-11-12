@@ -12,6 +12,7 @@ import { moduleVersionMap } from "../lib/module-registry";
 import { normalizeSelections } from "../lib/selection-rules";
 import { defaultToolchain } from "../lib/toolchain";
 import { defaultUiFramework } from "../lib/ui-framework";
+import { UI_TEXT } from "../lib/ui-text";
 
 const templates = loadTemplates();
 
@@ -843,6 +844,67 @@ describe("editable document and stale preview", () => {
 
     editDocument(generated);
     expect(leaving()).toBe(false);
+  });
+});
+
+describe("configuration advisories", () => {
+  const recommendation = `${UI_TEXT.advisories.recommendationPrefix} ${UI_TEXT.advisories.integrationTestsHttpFullStack}`;
+
+  function selectHttpFullStack() {
+    change("Application type", "web-app");
+    fireEvent.click(field("React + Vite"));
+    fireEvent.click(field("Backend Java"));
+    fireEvent.click(field("Includes an HTTP API"));
+    change("Backend framework", "spring-boot");
+  }
+
+  it("associates the recommendation with the integration tests checkbox", () => {
+    selectHttpFullStack();
+    const checkbox = field("Integration tests");
+    const note = screen.getByText(recommendation);
+    expect(checkbox.checked).toBe(false);
+    expect(checkbox.id).toBe("field-integrationTests");
+    expect(checkbox.tabIndex).toBe(0);
+    expect(checkbox.getAttribute("aria-invalid")).toBeNull();
+    expect(checkbox.getAttribute("aria-describedby")).toBe("advisory-integration-tests-http-fullstack");
+    expect(note.id).toBe("advisory-integration-tests-http-fullstack");
+    expect(note.getAttribute("role")).toBeNull();
+    expect(preview()).toBe("");
+  });
+
+  it("removes the recommendation as soon as integration tests are selected, without assembling", () => {
+    selectHttpFullStack();
+    expect(screen.getByText(recommendation)).toBeTruthy();
+    fireEvent.click(field("Integration tests"));
+    expect(field("Integration tests").checked).toBe(true);
+    expect(screen.queryByText(recommendation)).toBeNull();
+    expect(field("Integration tests").getAttribute("aria-describedby")).toBeNull();
+    expect(preview()).toBe("");
+    expect(screen.getByRole("button", { name: "Assemble Draft" })).toBeTruthy();
+  });
+
+  it("removes the recommendation when the HTTP API is cleared and leaves integration tests off", () => {
+    selectHttpFullStack();
+    fireEvent.click(field("Includes an HTTP API"));
+    expect(field("Includes an HTTP API").checked).toBe(false);
+    expect(field("Integration tests").checked).toBe(false);
+    expect(screen.queryByText(recommendation)).toBeNull();
+  });
+
+  it("assembles and enables download while the recommendation remains", () => {
+    selectHttpFullStack();
+    fillRequired();
+    expect(screen.getByText(recommendation)).toBeTruthy();
+    assemble();
+    const document = preview();
+    expect(document).toContain("# Project Requirements");
+    expect(document).toContain("### Module: `react-vite`");
+    expect(document).toContain("### Module: `spring-boot`");
+    expect(document).not.toContain("### Module: `integration-tests`");
+    expect(document).not.toContain(recommendation);
+    expect(document).not.toContain(UI_TEXT.advisories.integrationTestsHttpFullStack);
+    expect(screen.getByText(recommendation)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Download Markdown" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

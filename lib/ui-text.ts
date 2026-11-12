@@ -79,6 +79,11 @@ export const UI_TEXT = {
     success: "Copied the current Markdown.",
     failure: "Could not copy the Markdown. Select the preview and copy it manually.",
   },
+  advisories: {
+    recommendationPrefix: "Recommendation:",
+    integrationTestsHttpFullStack:
+      "This Web App includes a UI and an HTTP backend. Integration tests are recommended so the UI and API are verified together. You can assemble the document without enabling them.",
+  },
   assemblyFailed: (message: string) => `Assembly failed: ${message}`,
   confirm: {
     replaceHeading: "Replace manual edits?",

@@ -18,6 +18,14 @@ export function isApiChoiceFixed(config: ProjectConfig): boolean {
   return FIXED_API_BY_APP_TYPE[config.appType] !== undefined;
 }
 
+export function hasUserInterface(config: ProjectConfig): boolean {
+  return config.uiFrameworks.length > 0 || config.uiLanguages.length > 0;
+}
+
+export function hasBackendSelection(config: ProjectConfig): boolean {
+  return config.backendLanguages.length > 0 || config.backendFramework !== "none";
+}
+
 export function allowedRuntimes(config: ProjectConfig): Runtime[] {
   return hasLanguage(config.backendLanguages, "typescript") || hasLanguage(config.backendLanguages, "javascript")
     ? ["none", "nodejs"]

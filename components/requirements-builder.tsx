@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { evaluateAdvisories } from "@/lib/advisories";
 import { assembleRequirements } from "@/lib/assemble-requirements";
 import { configsMatch, defaultConfig, type ProjectConfig } from "@/lib/config";
 import {
@@ -600,6 +601,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const copyGeneration = useRef(0);
   const keepEditsRef = useRef<HTMLButtonElement>(null);
   const downloadCount = useRef(0);
+  const integrationAdvisory = evaluateAdvisories(config).find((advisory) => advisory.field === "integrationTests");
 
   const update = <K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]) =>
     setConfig((current) => ({ ...current, [key]: value }));
@@ -1007,18 +1009,28 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         <fieldset>
           <legend>{UI_TEXT.legends.testing}</legend>
           <p className="hint">{UI_TEXT.hints.testingAlwaysIncluded}</p>
-          {NON_API_MODULES.map((key) => (
-            <div className="field" key={key}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={config.modules[key]}
-                  onChange={(event) => updateModule(key, event.target.checked)}
-                />{" "}
-                {OPTIONAL_MODULE_LABELS[key]}
-              </label>
-            </div>
-          ))}
+          {NON_API_MODULES.map((key) => {
+            const advisory = key === "integrationTests" ? integrationAdvisory : undefined;
+            return (
+              <div className="field" key={key}>
+                <label>
+                  <input
+                    id={key === "integrationTests" ? "field-integrationTests" : undefined}
+                    type="checkbox"
+                    checked={config.modules[key]}
+                    aria-describedby={advisory ? `advisory-${advisory.id}` : undefined}
+                    onChange={(event) => updateModule(key, event.target.checked)}
+                  />{" "}
+                  {OPTIONAL_MODULE_LABELS[key]}
+                </label>
+                {advisory && (
+                  <p id={`advisory-${advisory.id}`} className="hint">
+                    {UI_TEXT.advisories.recommendationPrefix} {advisory.message}
+                  </p>
+                )}
+              </div>
+            );
+          })}
 
           <div className="field">
             <label>

@@ -3,6 +3,8 @@ import { defaultConfig, type ProjectConfig } from "../lib/config";
 import {
   allowedBackendFrameworks,
   allowedRuntimes,
+  hasBackendSelection,
+  hasUserInterface,
   isApiChoiceFixed,
   normalizeSelections,
 } from "../lib/selection-rules";
@@ -140,6 +142,15 @@ describe("normalizeSelections", () => {
     );
     expect(next.uiLanguages).toEqual([]);
     expect(next.uiFrameworks).toEqual([defaultUiFramework("nextjs")]);
+  });
+
+  it("recognizes a UI or backend from either a language or a framework", () => {
+    expect(hasUserInterface(config())).toBe(false);
+    expect(hasUserInterface(config({ appType: "web-app", uiLanguages: [defaultToolchain("typescript")] }))).toBe(true);
+    expect(hasUserInterface(config({ appType: "web-app", uiFrameworks: [defaultUiFramework("nextjs")] }))).toBe(true);
+    expect(hasBackendSelection(config())).toBe(false);
+    expect(hasBackendSelection(config({ backendLanguages: backend("java") }))).toBe(true);
+    expect(hasBackendSelection(config({ backendFramework: "spring-boot" }))).toBe(true);
   });
 
   it("clears Spring Boot when Java is removed and FastAPI when Python is removed", () => {

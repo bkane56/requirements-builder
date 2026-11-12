@@ -161,7 +161,7 @@ Initial modules:
 - Selected modules may not be silently omitted or rewritten to remove mandatory requirements.
 - The UI must disable or flag incompatible combinations (e.g., Maven-only rules with Python).
 - Distinguish language, runtime, framework, and dependency manager as separate concepts in configuration. Node.js is a runtime; do not present it as a language.
-- Show UI framework choices only for a Web App. Next.js and React + Vite can both be checked, and each stores its own options. Do not require a UI framework for backend or CLI projects. A Web App may include a backend in the same configuration.
+- Show UI framework choices only for a Web App. Next.js and React + Vite can both be checked, and each stores its own options. Do not require a UI framework for backend or CLI projects. A Web App may include a backend in the same configuration. When that Web App also includes an HTTP backend and integration tests are off, show a recommendation to enable them. The recommendation must not change the checkbox, block assembly, or appear in the generated document.
 - Store the selected package manager, language version, test runner, and linter on each checked language. Defaults are Maven for Java, uv for Python, and Yarn for JavaScript and TypeScript. JavaScript and TypeScript on one side share the package manager and the other manifest-level choices. UI and backend copies of the same language are separate packages.
 - Keep optional coverage thresholds configurable; defaults should be guidance, not misleading guarantees of correctness. Include meaningful tests for critical business logic even when coverage numbers are met.
 - Only show OpenAPI/Postman as relevant when an API surface exists; do not assume every app needs an API.
