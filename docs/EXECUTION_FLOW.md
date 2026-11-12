@@ -2,7 +2,7 @@
 
 Requirements Builder turns a form into one Markdown document. A user enters business requirements, chooses a mode and a technology stack, and selects Assemble Draft. The page then validates that configuration, chooses Markdown modules, and writes `PROJECT_REQUIREMENTS.md` content into an editable preview. Copy and download use the text currently in that preview.
 
-Assembly is a synchronous, deterministic function of the current configuration and the template text loaded with the page. The same inputs always produce the same string. Nothing in that path calls an AI service, a database, or a network API. Configuration JSON import and export stay in the browser.
+Assembly is a synchronous, deterministic function of the current configuration and the template text loaded with the page. The same inputs always produce the same string. Nothing in that path calls an AI service, a database, or a network API. Configuration JSON import and export stay in the browser. Optional AI analysis is a separate `POST /api/ai-review` request. It is not part of assembly, and the page route stays prerendered.
 
 ## Main path
 
@@ -237,3 +237,19 @@ Export and import use the form, not the Markdown document. Both run in the brows
 On success, the page replaces `config`, runs `validateConfig`, clears `pending` and `assemblyError`, and leaves `markdown` and `assembled` untouched. Field errors from the imported form are shown immediately. On failure, the form and the document stay as they were. The file input is cleared after every attempt so the same file can be chosen again.
 
 [`tests/config-file.test.ts`](../tests/config-file.test.ts) checks the round trip for every golden fixture, verbatim user text, repaired choices, a library-version warning, and rejected files. The UI tests cover export, import without changing the current document, the library warning, a rejected file, and a failed export.
+
+## 12. Optional AI analysis
+
+The analysis panel is rendered after the configuration form. It receives the current configuration and does not call `setConfig`. The first click opens an in-page confirmation. Nothing is sent before that confirmation. Escape or Cancel closes it.
+
+The browser posts `{ config }` to `/api/ai-review`. The route reads the body, rejects a body over 64 KB, and returns `unavailable` when `AI_REVIEW_ENABLED` is not exactly `true`, the provider is not `openai`, or the model or key is missing. When analysis is enabled, the route allows 10 requests per 10 minutes in the current process. That limit is for local or private use. It is not authentication and it is not protection for a public deployment.
+
+`handleAnalysisPost` rebuilds the model input with `buildAnalysisInput`. The model sees that JSON as untrusted data. The OpenAI adapter sends one Responses API request with `text.format.type` set to `json_schema`, `strict: true`, and `max_output_tokens` set to 2000. It retries once, and only for HTTP 429 or 503. Timeout and authentication failures are not retried. The adapter does not log the key, the requirements, or the provider body.
+
+The application parser assigns `F-001` style ids and rejects a response that is missing a field, has an extra field, names an unknown requirement id, or exceeds a text limit. It does not truncate. An incomplete provider response, including one stopped for the output-token budget, is `invalid-response`.
+
+The panel stores the returned fingerprint and compares it with the fingerprint of the latest configuration. A mismatch shows that the analysis does not match the current requirements. The findings stay visible, and they are not described as current. A response for an older request is ignored once a newer request has started or a newer result has been applied. Editing the form does not send a new request and does not clear the findings. Running analysis again replaces them.
+
+No findings shows: "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct."
+
+[`tests/ai-analysis.test.ts`](../tests/ai-analysis.test.ts) covers the input, the parser, the fake provider, and the route. The AI cases in [`tests/requirements-builder.test.tsx`](../tests/requirements-builder.test.tsx) mock `fetch` and check that assembly and the preview do not change.

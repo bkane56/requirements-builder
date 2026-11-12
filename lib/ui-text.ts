@@ -121,6 +121,52 @@ export const UI_TEXT = {
         ? `${criterionIds} will remain. Its reference to ${requirementId} will be removed. If it loses its last reference, it becomes project-wide.`
         : `${criterionIds} will remain. Their references to ${requirementId} will be removed. A criterion that loses its last reference becomes project-wide.`,
   },
+  analysis: {
+    heading: "AI requirements analysis",
+    intro:
+      "Analysis is optional and stays off until the server enables it. An enabled endpoint is not authenticated and must not be exposed on the public internet. The local request limit is not protection for a public deployment. Findings are advisory and do not change the form or the document.",
+    analyze: "Analyze requirements with AI",
+    analyzeAgain: "Analyze again",
+    working: "Analyzing requirements.",
+    advisory: "These findings are advisory. They are not requirements and were not applied.",
+    noFindings:
+      "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct.",
+    stale: "This analysis does not match the current requirements.",
+    related: (ids: string) => `Related requirements: ${ids}`,
+    question: (text: string) => `Question: ${text}`,
+    suggestedAction: (text: string) => `Suggested action: ${text}`,
+    uncertainty: (text: string) => `Uncertainty: ${text}`,
+    confirmHeading: "Send requirements for AI analysis?",
+    confirmBody:
+      "The project name, description, active requirements, and selected technology choices will be sent to the configured AI provider. Nothing in the form or the document is changed.",
+    send: "Send for analysis",
+    categories: {
+      missing_detail: "Missing detail",
+      ambiguity: "Ambiguity",
+      contradiction: "Contradiction",
+      stack_conflict: "Stack conflict",
+      error_handling: "Error handling",
+      acceptance_criteria: "Acceptance criteria",
+      external_dependency: "External dependency",
+      security_privacy: "Security or privacy",
+      nonfunctional: "Nonfunctional",
+    },
+    severities: {
+      high: "High",
+      medium: "Medium",
+      low: "Low",
+    },
+    errors: {
+      unavailable: "AI analysis is turned off on the server. Your requirements were not changed.",
+      "too-large": "The requirements are too large to analyze. Your requirements were not changed.",
+      "invalid-request": "The analysis request was not valid. Your requirements were not changed.",
+      timeout: "The analysis request timed out. Your requirements were not changed.",
+      provider: "The analysis service did not respond. Your requirements were not changed.",
+      "invalid-response": "The analysis response was not usable. Your requirements were not changed.",
+      "rate-limited":
+        "Too many analysis requests were made from this server. Wait and try again. This limit is only for local use and is not public protection. Your requirements were not changed.",
+    },
+  },
 } as const;
 
 export const VALIDATION_TEXT = {

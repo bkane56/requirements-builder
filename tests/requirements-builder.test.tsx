@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import fs from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder from "../components/requirements-builder";
+import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
 import { assembleRequirements } from "../lib/assemble-requirements";
-import { defaultConfig } from "../lib/config";
+import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { serializeConfig } from "../lib/config-file";
 import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
@@ -1281,6 +1282,241 @@ describe("configuration import and export", () => {
 
     expect(screen.getByRole("alert")).toHaveProperty("textContent", "Could not export the configuration.");
     expect(field("Project name").value).toBe("Keep me");
+  });
+});
+
+const analysisFinding = {
+  id: "F-001",
+  category: "ambiguity",
+  severity: "medium",
+  explanation: "The upload size is not stated.",
+  relatedRequirementIds: [] as string[],
+  question: "What is the maximum file size?",
+  suggestedAction: null,
+  uncertainty: null,
+};
+
+function analysisResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function holdAnalysisFetch() {
+  const pending: Array<{ resolve: (response: Response) => void; reject: (error: unknown) => void; body: string }> = [];
+  const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = typeof init?.body === "string" ? init.body : "";
+    return new Promise<Response>((resolve, reject) => {
+      pending.push({ resolve, reject, body });
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { pending, fetchMock };
+}
+
+function fingerprintOf(body: string) {
+  const sent = JSON.parse(body) as { config: ProjectConfig };
+  return analysisFingerprint(buildAnalysisInput(sent.config));
+}
+
+describe("AI requirements analysis", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends nothing until the privacy confirmation is accepted", () => {
+    const { fetchMock } = holdAnalysisFetch();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.keyDown(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }), { key: "Escape" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeNull();
+  });
+
+  it("disables the button while a request is in flight and leaves the form and document unchanged", async () => {
+    fillRequired();
+    assemble();
+    const before = preview();
+    const { pending, fetchMock } = holdAnalysisFetch();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+
+    const analyzeButton = screen.getByRole("button", { name: UI_TEXT.analysis.analyze });
+    expect((analyzeButton as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(UI_TEXT.analysis.working)).toBeTruthy();
+    fireEvent.click(analyzeButton);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding] },
+      }),
+    );
+
+    expect(await screen.findByText(analysisFinding.explanation)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.advisory)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.question(analysisFinding.question))).toBeTruthy();
+    expect(screen.queryByText(/Suggested action:/)).toBeNull();
+    expect(preview()).toBe(before);
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(screen.queryByText(UI_TEXT.analysis.stale)).toBeNull();
+    expect(before).not.toContain(analysisFinding.explanation);
+  });
+
+  it("marks a response stale when the form changes while the request is in flight", async () => {
+    fillRequired();
+    const { pending, fetchMock } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    const sentFingerprint = fingerprintOf(pending[0].body);
+
+    change("Project name", "Changed during analysis");
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: sentFingerprint,
+        result: { findings: [analysisFinding] },
+      }),
+    );
+
+    expect(await screen.findByText(UI_TEXT.analysis.stale)).toBeTruthy();
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    change("Project name", "Receipt Tracker");
+    expect(screen.queryByText(UI_TEXT.analysis.stale)).toBeNull();
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces a stale analysis when analysis is run again", async () => {
+    fillRequired();
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    change("Business requirements", "Users can delete a receipt.");
+    const first = pending[0];
+    first.resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(first.body),
+        result: { findings: [analysisFinding] },
+      }),
+    );
+    expect(await screen.findByText(UI_TEXT.analysis.stale)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+    const second = pending[1];
+    const replacement = { ...analysisFinding, explanation: "Deletion needs an undo window." };
+    second.resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(second.body),
+        result: { findings: [replacement] },
+      }),
+    );
+
+    expect(await screen.findByText(replacement.explanation)).toBeTruthy();
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(screen.queryByText(UI_TEXT.analysis.stale)).toBeNull();
+  });
+
+  it("does not let an earlier response replace a newer analysis", async () => {
+    fillRequired();
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    const send = screen.getByRole("button", { name: UI_TEXT.analysis.send });
+    await act(async () => {
+      send.click();
+      send.click();
+    });
+    expect(pending).toHaveLength(2);
+
+    const newer = { ...analysisFinding, explanation: "Newer finding." };
+    pending[1].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[1].body),
+        result: { findings: [newer] },
+      }),
+    );
+    expect(await screen.findByText(newer.explanation)).toBeTruthy();
+
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding] },
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText(newer.explanation)).toBeTruthy();
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+  });
+
+  it("does not describe an empty result as proof that the requirements are complete", async () => {
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [] },
+      }),
+    );
+
+    expect(await screen.findByText(UI_TEXT.analysis.noFindings)).toHaveProperty("textContent", UI_TEXT.analysis.noFindings);
+    expect(screen.getByText(UI_TEXT.analysis.advisory)).toBeTruthy();
+  });
+
+  it("leaves the form and document intact when analysis fails", async () => {
+    fillRequired("Users can upload a receipt.\n  Keep this line.");
+    assemble();
+    const before = preview();
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(analysisResponse({ ok: false, error: "provider" }, 502));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", UI_TEXT.analysis.errors.provider);
+    expect(preview()).toBe(before);
+    expect(field("Business requirements").value).toBe("Users can upload a receipt.\n  Keep this line.");
+    expect(before).toContain("Users can upload a receipt.\n  Keep this line.");
+  });
+
+  it("reports an unusable analysis response without changing the document", async () => {
+    fillRequired();
+    assemble();
+    const before = preview();
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [{ explanation: "not a finding" }] },
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", UI_TEXT.analysis.errors["invalid-response"]);
+    expect(preview()).toBe(before);
+    expect(screen.queryByText("not a finding")).toBeNull();
   });
 });
 

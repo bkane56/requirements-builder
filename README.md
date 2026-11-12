@@ -1,8 +1,8 @@
 # Requirements Builder
 
-Assembles a deterministic `PROJECT_REQUIREMENTS.md` from user-entered business requirements and reusable Markdown modules. No AI, database, or network access is needed to generate a document.
+Assembles a deterministic `PROJECT_REQUIREMENTS.md` from user-entered business requirements and reusable Markdown modules. Generating a document does not need AI, a database, or network access.
 
-See [requirements.md](requirements.md) for the full product requirements. This repository implements Stage 1, the Stage 2A editing workflow, and Stage 2B configuration import and export. No environment variables are required.
+See [requirements.md](requirements.md) for the full product requirements. This repository implements Stage 1, the Stage 2A editing workflow, Stage 2B configuration import and export, and optional AI requirements analysis. Deterministic assembly does not need environment variables. Optional AI analysis stays off unless the server is configured, as described under Optional AI analysis.
 
 ## Prerequisites
 
@@ -39,10 +39,10 @@ To add a module, create its Markdown file under `templates/` and add an entry to
 
 All tests run with Vitest (`yarn test`). The UI tests use React Testing Library with `happy-dom`, selected per file by the `// @vitest-environment happy-dom` comment; all other tests run in Node. `happy-dom` was chosen over jsdom because current jsdom requires Node `^22.22.2 || ^24.15.0`, which is narrower than this project's supported range.
 
-- `tests/assembly.test.ts`, `tests/validation.test.ts`, `tests/advisories.test.ts`, `tests/requirements-content.test.ts`, `tests/selection-rules.test.ts`, `tests/config.test.ts`, `tests/config-file.test.ts`, `tests/download-filename.test.ts`: unit tests for the pure logic in `lib/`.
+- `tests/assembly.test.ts`, `tests/validation.test.ts`, `tests/advisories.test.ts`, `tests/requirements-content.test.ts`, `tests/selection-rules.test.ts`, `tests/config.test.ts`, `tests/config-file.test.ts`, `tests/download-filename.test.ts`, `tests/ai-analysis.test.ts`: unit tests for the pure logic in `lib/`. AI tests use a fake provider and do not call a network.
 - `tests/golden.test.ts`: compares the assembled document for each golden configuration with its approved document, character for character.
 - `tests/templates.test.ts`: template integrity. Every registered file exists, every template file is registered, module IDs are unique, versions and sections are valid, templates use only supported placeholders and no `#`, `##`, or `###` headings (those levels belong to the assembled document). It also enforces the requirements.md rule against em dashes and emojis in `app/`, `components/`, `lib/`, and `templates/`. User-entered text is exempt and is preserved verbatim.
-- `tests/requirements-builder.test.tsx`: UI behavior, including conditional controls, compatibility resets, validation messages and focus, separate coverage-field errors, assembly, editing, stale and edited notices, reassembly confirmation, restore, configuration import and export, copy, download, and the assembly error alert.
+- `tests/requirements-builder.test.tsx`: UI behavior, including conditional controls, compatibility resets, validation messages and focus, separate coverage-field errors, assembly, editing, stale and edited notices, reassembly confirmation, restore, configuration import and export, copy, download, the assembly error alert, and AI analysis. The AI tests mock `fetch`. They check the privacy confirmation, an edit made while a request is in flight, a late response, and that the form and document stay unchanged.
 
 `yarn test:coverage` enforces at least 85% line and 80% branch coverage over `lib/` and `components/`. `app/layout.tsx` and `app/page.tsx` are excluded as framework scaffolding; template loading through the page is verified by `yarn build`.
 
@@ -82,6 +82,30 @@ Reassemble replaces the document from the current form. If the document has manu
 
 The browser may show its generic leave prompt while the document has manual edits. That prompt is best-effort and does not save the document.
 
+## Optional AI analysis
+
+Analyze requirements with AI reviews the current form. It does not run when you assemble a draft, and it does not need a document to exist. The first click in a page session asks before anything is sent. Cancel, or Escape, sends nothing. A later click in that page session sends the current form.
+
+The request includes the project name, description, active requirements, and selected technology choices. In structured mode the preserved free-text fields are not sent. Template text, package manager, linter, test runner, Node version, coverage numbers, and stretch goals are not sent. User text is data for the model, not instructions. Findings stay on the page. They are not written into `PROJECT_CONFIGURATION.json` or the Markdown document. Changing the form marks an existing analysis as not matching the current requirements. A response that belongs to an older request does not replace a newer analysis.
+
+An empty result uses this sentence: "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct."
+
+The page route stays prerendered. The browser calls `POST /api/ai-review` on the Node server from `yarn dev` or `yarn start`. A static file host cannot serve that route. Copy `.env.example` to `.env` in this directory and set the values you want:
+
+```bash
+AI_REVIEW_ENABLED=true
+AI_PROVIDER=openai
+AI_MODEL=gpt-5.4-mini
+AI_API_KEY=your-key
+AI_REQUEST_TIMEOUT_MS=30000
+```
+
+`AI_REVIEW_ENABLED` must be the exact string `true`. Any other value, including an omitted file, leaves analysis off. The route then returns `unavailable`, and assembly, editing, import, export, copy, and download keep working. `AI_API_KEY` is read only on the server. Do not commit a real key. `.env` is gitignored; `.env.example` holds empty placeholders.
+
+The model name comes from `AI_MODEL`. The example uses `gpt-5.4-mini`. Published standard rates at the time of implementation were $0.75 per million input tokens and $4.50 per million output tokens. A normal review is about one cent. Prices can change. The request budget is 2000 output tokens. A response that exceeds a text limit or the token budget is rejected and is not truncated.
+
+An enabled endpoint is not authenticated. Do not expose it on the public internet. Each server process allows 10 analysis requests per 10 minutes. That limit is only for local or private development. It resets when the process restarts, and it is not sufficient protection for a public deployment. This application does not add an authentication system.
+
 ## Current status (Stage 2B)
 
 Implemented: project inputs, Fast/Project mode, application type, backend languages (Java, Python, TypeScript, JavaScript, Other) and, for a Web App, UI languages (TypeScript, JavaScript, Other) plus UI frameworks (Next.js and React + Vite, including routing, client state, and server data), per-language package manager, language version, test runner, and linter choices, Node.js runtime, one backend framework alongside the UI for a full-stack Web App, HTTP API inclusion, Swagger/OpenAPI and Postman (only with an HTTP API), optional testing/data/security modules, configurable coverage targets, Fast Mode architecture and complexity constraints, compatibility validation, deterministic assembly, an editable Markdown document, stale and edited notices, confirmed reassembly and restore, configuration JSON import and export, copy, and download.
@@ -98,9 +122,12 @@ Package manager choices are Yarn, npm, and pnpm for JavaScript and TypeScript (d
 - The form can check more than one backend language, but it still offers only one backend framework.
 - Next.js and React + Vite can both be checked. Each keeps its own routing, client state, and server data choices. Forms and styling are not choices yet.
 - JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter. UI and backend selections are separate packages. There is no monorepo or workspace choice.
+- AI analysis has no authentication. Do not enable it on a public server. The in-memory request limit is not public protection.
+- AI findings cannot be applied to the form or the document from this screen.
+- A host that only serves static files cannot answer `POST /api/ai-review`.
 
 ### Deferred to later stages
 
 - Stage 2C: further integration polish.
-- Stage 3: optional AI review.
+- Applying an AI finding to the requirements or the document.
 - Stage 4: Fast Mode presets, one-click reset, and demo polish.

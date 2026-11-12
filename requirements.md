@@ -194,26 +194,30 @@ Use clear, imperative, testable language. Distinguish **user-provided requiremen
 
 ### 8.1 API and workflow
 
-- AI is **opt-in**, invoked by a dedicated button after deterministic assembly.
-- The server-side route owns the model credential; never expose API secrets to client bundles or logs.
-- Send only the minimum required document content; display a concise notice that the selected content will be transmitted to the configured provider.
-- Request structured output such as `issues[]`, `questions[]`, `suggestedChanges[]`, and `proposedMarkdown`.
-- Check parsed response against a schema; report malformed output without damaging the user's draft.
-- Treat the document and user business requirements as untrusted task data for the model; prohibit instructions embedded within them from changing the application's workflow.
-- AI must not silently invent features, remove selected standards, or claim external facts have been verified.
-- The user can reject the AI proposal and keep the original document.
-- On LLM timeout, unavailable key, provider failure, or rate limit, deterministic assembly, editing, copy, and export remain fully usable.
+- AI analysis is opt-in. It stays off unless `AI_REVIEW_ENABLED` is exactly `true` and the server has a provider, model, and API key.
+- The user starts it with Analyze requirements with AI. It is not part of Assemble Draft, and it does not require a generated document.
+- The first send in a page session asks for confirmation and names what will be sent. Cancel sends nothing.
+- The server-side route owns the model credential. The key is not sent to the browser, logged, or written into the configuration file.
+- The request body is the current configuration, limited to 64 KB. The server rebuilds the model input and ignores any client-supplied prompt. User requirements are untrusted data, not instructions to the model.
+- The model returns advisory findings only. It does not change the description, free-text fields, confirmed or proposed requirements, criterion links, technology choices, or the Markdown document.
+- The application checks the response against its schema. A missing field, extra field, unknown requirement id, or over-length explanation, question, suggested action, or uncertainty rejects the whole response. The application does not truncate that text.
+- An empty finding list is a successful response. It does not mean the requirements have been proven complete or correct. The page says: "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct."
+- Results stay in the page. They are not stored in the configuration or the exported JSON. Editing the form marks them as not matching the current requirements. A late or out-of-order response does not replace a newer analysis.
+- On timeout, a disabled or missing key, provider failure, an invalid response, or the local rate limit, deterministic assembly, editing, copy, and export remain usable.
+- An enabled endpoint is not authenticated. Do not expose it on the public internet. The in-memory limit of 10 requests per 10 minutes is only for local or private development. It is not sufficient protection for a public deployment, and this stage does not add an authentication system.
+- The current builder does not apply a finding to the requirements or the document.
 
-### 8.2 AI review prompts should ask for
+### 8.2 AI analysis looks for
 
-- Missing or ambiguous requirements and assumptions.
-- Contradictions between business requirements and selected modules.
-- Missing measurable acceptance criteria.
-- Appropriate boundary/negative test cases.
-- Unnecessary infrastructure for the requested scope.
-- A proposed implementation order emphasizing a runnable first slice.
+- Missing functional detail, ambiguity, and contradictions between requirements.
+- Contradictions with the selected technology.
+- Missing error handling or edge cases.
+- Acceptance criteria that are missing or not specific enough to test.
+- Unspecified external services, data, or APIs.
+- Security, privacy, or authorization gaps when the requirements make them relevant.
+- Accessibility, reliability, performance, or observability only when they would change the implementation.
 
-The builder is an assistant to the engineer, **not an autonomous authority** for final requirements.
+The analysis should skip generic advice, should not invent product facts, and should not treat a proposed item as approved. The builder remains an assistant to the engineer, not an authority for the final requirements.
 
 ## 9. Golden test data and verification
 

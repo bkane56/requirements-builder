@@ -88,6 +88,7 @@ import { defaultUiFramework, replaceUiFramework, type UiFrameworkPatch } from "@
 import { UI_TEXT } from "@/lib/ui-text";
 import { hasErrors, requirementsItemErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
 import { RequirementsEditor } from "./requirements-editor";
+import { RequirementsAnalysis } from "./requirements-analysis";
 
 type TextFieldName = "projectName" | "description" | "businessRequirements" | "acceptanceCriteria" | "stretchGoals";
 
@@ -1123,6 +1124,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           </p>
         )}
         </form>
+        <RequirementsAnalysis config={config} />
       </section>
 
       <section className="output" aria-labelledby="preview-heading">
