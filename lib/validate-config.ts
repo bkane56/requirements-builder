@@ -32,6 +32,8 @@ function validateSelections(config: ProjectConfig, errors: ValidationErrors) {
     errors.uiLanguages = VALIDATION_TEXT.uiLanguagesOnlyWebApp;
   } else if (!isLegalStack(config.uiLanguages, "ui")) {
     errors.uiLanguages = VALIDATION_TEXT.uiLanguages;
+  } else if (config.appType === "web-app" && config.uiFrameworks.length > 0 && config.uiLanguages.length === 0) {
+    errors.uiLanguages = VALIDATION_TEXT.uiLanguageRequired;
   }
 
   if (!isLegalStack(config.backendLanguages, "backend")) {

@@ -134,6 +134,14 @@ describe("normalizeSelections", () => {
     ]);
   });
 
+  it("does not add a UI language when a framework is selected and no language is present", () => {
+    const next = normalizeSelections(
+      config({ appType: "web-app", uiFrameworks: [defaultUiFramework("nextjs")], uiLanguages: [] }),
+    );
+    expect(next.uiLanguages).toEqual([]);
+    expect(next.uiFrameworks).toEqual([defaultUiFramework("nextjs")]);
+  });
+
   it("clears Spring Boot when Java is removed and FastAPI when Python is removed", () => {
     const spring = normalizeSelections(
       config({ appType: "rest-api", exposesApi: true, backendLanguages: backend("java"), backendFramework: "spring-boot" }),

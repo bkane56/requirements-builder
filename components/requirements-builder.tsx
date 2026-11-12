@@ -163,6 +163,17 @@ type PendingAction = {
 
 const fieldId = (name: keyof ValidationErrors | keyof ProjectConfig) => `field-${name}`;
 
+function focusInvalid(key: keyof ValidationErrors) {
+  if (key === "uiLanguages") {
+    const checkbox = document.querySelector<HTMLInputElement>(`#${fieldId("uiLanguages")} input[type="checkbox"]`);
+    if (checkbox) {
+      checkbox.focus();
+      return;
+    }
+  }
+  document.getElementById(fieldId(key))?.focus();
+}
+
 function describedBy(...ids: (string | false | undefined)[]) {
   return ids.filter(Boolean).join(" ") || undefined;
 }
@@ -406,12 +417,15 @@ function StackLanguages({
     entries.some((entry) => entry.language === "typescript") &&
     entries.some((entry) => entry.language === "javascript");
   const hintId = `${side}-shared-manifest`;
+  const errorId = error ? `${fieldId(fieldName)}-error` : undefined;
+  const describedByIds = describedBy(sharesManifest && hintId, errorId);
 
   return (
     <fieldset
       id={fieldId(fieldName)}
       tabIndex={-1}
-      aria-describedby={describedBy(sharesManifest && hintId, error && `${fieldId(fieldName)}-error`)}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={describedByIds}
     >
       <legend>{side === "ui" ? UI_TEXT.legends.uiLanguages : UI_TEXT.legends.backendLanguages}</legend>
       {languages.map((language) => {
@@ -421,8 +435,11 @@ function StackLanguages({
             <div className="field">
               <label>
                 <input
+                  id={`${fieldId(fieldName)}-${language}`}
                   type="checkbox"
                   checked={entry !== undefined}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={describedByIds}
                   onChange={(event) => onToggle(language, event.target.checked)}
                 />{" "}
                 {`${STACK_SIDE_LABELS[side]} ${LANGUAGE_LABELS[language]}`}
@@ -614,8 +631,10 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const toggleUiFramework = (framework: UiFrameworkId, checked: boolean) =>
     setConfig((current) => {
       const without = current.uiFrameworks.filter((entry) => entry.framework !== framework);
+      const selectDefaultLanguage = checked && current.uiFrameworks.length === 0 && current.uiLanguages.length === 0;
       return normalizeSelections({
         ...current,
+        uiLanguages: selectDefaultLanguage ? [defaultToolchain("typescript")] : current.uiLanguages,
         uiFrameworks: checked ? [...without, defaultUiFramework(framework)] : without,
       });
     });
@@ -657,7 +676,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     if (hasErrors(nextErrors)) {
       setPending(null);
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
-      if (firstInvalid) document.getElementById(fieldId(firstInvalid))?.focus();
+      if (firstInvalid) focusInvalid(firstInvalid);
       return;
     }
 
@@ -794,7 +813,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     });
     if (hasErrors(nextErrors)) {
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
-      if (firstInvalid) document.getElementById(fieldId(firstInvalid))?.focus();
+      if (firstInvalid) focusInvalid(firstInvalid);
     }
   }
 

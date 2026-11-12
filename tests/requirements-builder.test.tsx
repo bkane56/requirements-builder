@@ -169,6 +169,49 @@ describe("conditional controls", () => {
     expect(document).toContain("- Full stack: this Web App includes both a UI and a backend.");
   });
 
+  it("selects TypeScript when the first UI framework is checked and leaves an existing language alone", () => {
+    change("Application type", "web-app");
+    fireEvent.click(field("Next.js"));
+    expect(field("UI TypeScript").checked).toBe(true);
+
+    fireEvent.click(field("UI TypeScript"));
+    fireEvent.click(field("UI JavaScript"));
+    fireEvent.click(field("React + Vite"));
+    expect(field("UI TypeScript").checked).toBe(false);
+    expect(field("UI JavaScript").checked).toBe(true);
+
+    fireEvent.click(field("Next.js"));
+    fireEvent.click(field("React + Vite"));
+    expect(field("UI JavaScript").checked).toBe(true);
+    fireEvent.click(field("Next.js"));
+    expect(field("UI TypeScript").checked).toBe(false);
+    expect(field("UI JavaScript").checked).toBe(true);
+  });
+
+  it("blocks assembly when a UI framework has no language and focuses the first language checkbox", () => {
+    change("Application type", "web-app");
+    fireEvent.click(field("Next.js"));
+    fireEvent.click(field("UI TypeScript"));
+    fillRequired();
+    assemble();
+
+    const language = field("UI TypeScript");
+    const group = document.getElementById("field-uiLanguages");
+    expect(screen.getByText("Select a UI language for the selected UI framework.")).toBeTruthy();
+    expect(group?.getAttribute("aria-invalid")).toBe("true");
+    expect(group?.getAttribute("aria-describedby")).toBe("field-uiLanguages-error");
+    expect(language.getAttribute("aria-invalid")).toBe("true");
+    expect(language.getAttribute("aria-describedby")).toBe("field-uiLanguages-error");
+    expect(language.tabIndex).toBe(0);
+    expect(document.activeElement).toBe(language);
+    expect(preview()).toBe("");
+
+    fireEvent.click(field("UI Other"));
+    assemble();
+    expect(screen.queryByText("Select a UI language for the selected UI framework.")).toBeNull();
+    expect(preview()).toContain("Which UI language and toolchain should be used for the \"Other\" selection?");
+  });
+
   it("fixes the HTTP API choice for REST API and CLI projects", () => {
     change("Application type", "rest-api");
     expect(maybeField("Includes an HTTP API")).toBeNull();
@@ -207,9 +250,11 @@ describe("compatibility resets", () => {
   it("clears the UI frameworks and API documentation when the application type changes", () => {
     change("Application type", "web-app");
     fireEvent.click(field("Next.js"));
+    expect(field("UI TypeScript").checked).toBe(true);
     change("Application type", "cli-library");
     change("Application type", "web-app");
     expect(field("Next.js").checked).toBe(false);
+    expect(field("UI TypeScript").checked).toBe(false);
 
     change("Application type", "rest-api");
     fireEvent.click(field("Swagger / OpenAPI documentation"));
@@ -859,6 +904,30 @@ describe("configuration import and export", () => {
 
     assemble();
     expect(preview()).toBe(assembleRequirements(normalizeSelections(imported), templates));
+  });
+
+  it("imports a framework without adding a UI language and focuses the language checkbox", async () => {
+    change("Application type", "web-app");
+    const imported = {
+      ...defaultConfig,
+      projectName: "Imported Ledger",
+      businessRequirements: "Users can export a ledger.",
+      appType: "web-app" as const,
+      uiFrameworks: [defaultUiFramework("react-vite")],
+      uiLanguages: [],
+    };
+    importFile(serializeConfig(imported, moduleVersionMap()));
+
+    const language = field("UI TypeScript");
+    const group = document.getElementById("field-uiLanguages");
+    expect(await screen.findByText("Select a UI language for the selected UI framework.")).toBeTruthy();
+    expect(language.checked).toBe(false);
+    expect(field("React + Vite").checked).toBe(true);
+    expect(group?.getAttribute("aria-invalid")).toBe("true");
+    expect(group?.getAttribute("aria-describedby")).toBe("field-uiLanguages-error");
+    expect(language.getAttribute("aria-describedby")).toBe("field-uiLanguages-error");
+    expect(document.activeElement).toBe(language);
+    expect(preview()).toBe("");
   });
 
   it("shows field errors when the imported form is incomplete", async () => {

@@ -77,6 +77,11 @@ describe("validateConfig", () => {
       "uiFrameworks",
       "UI framework options must match the supported choices.",
     ],
+    [
+      { appType: "web-app", uiFrameworks: [defaultUiFramework("nextjs")], uiLanguages: [] },
+      "uiLanguages",
+      "Select a UI language for the selected UI framework.",
+    ],
     [{ appType: "rest-api", exposesApi: false }, "exposesApi", "REST API projects must include an HTTP API."],
     [{ appType: "cli-library", exposesApi: true }, "exposesApi", "CLI / Library projects cannot include an HTTP API."],
     [{ exposesApi: false, modules: { ...defaultConfig.modules, postman: true } }, "modules", "Swagger/OpenAPI and Postman require an HTTP API."],
@@ -86,6 +91,19 @@ describe("validateConfig", () => {
       expect(validateConfig({ ...valid, ...overrides })[field]).toBe(message);
     },
   );
+
+  it("accepts a UI framework when TypeScript, JavaScript, or Other is selected", () => {
+    for (const language of ["typescript", "javascript", "other"] as const) {
+      const errors = validateConfig({
+        ...valid,
+        appType: "web-app",
+        uiFrameworks: [defaultUiFramework("react-vite")],
+        uiLanguages: [defaultToolchain(language)],
+      });
+      expect(errors.uiLanguages).toBeUndefined();
+    }
+    expect(validateConfig({ ...valid, appType: "cli-library" }).uiLanguages).toBeUndefined();
+  });
 
   it.each([Number.NaN, -1, 101, 85.5])("rejects line coverage target %s without flagging branch", (value) => {
     const errors = validateConfig({ ...valid, coverage: { enabled: true, linePercent: value, branchPercent: 80 } });

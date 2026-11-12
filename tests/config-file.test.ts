@@ -69,6 +69,7 @@ describe("configuration file", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.value.config.uiFrameworks).toEqual([defaultUiFramework("react-vite")]);
+    expect(parsed.value.config.uiLanguages).toEqual([]);
 
     file.config.frontend = "no-preference";
     const unspecified = parseConfigText(JSON.stringify(file), versions);

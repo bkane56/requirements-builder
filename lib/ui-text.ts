@@ -102,6 +102,7 @@ export const VALIDATION_TEXT = {
   nodeRuntime: "The Node.js runtime requires TypeScript or JavaScript on the backend.",
   uiLanguagesOnlyWebApp: "UI languages apply only to Web App projects.",
   uiLanguages: "UI language options must match the supported choices.",
+  uiLanguageRequired: "Select a UI language for the selected UI framework.",
   backendLanguages: "Backend language options must match the supported choices.",
   springBoot: "Spring Boot requires Java and an HTTP API.",
   fastapi: "FastAPI requires Python and an HTTP API.",
