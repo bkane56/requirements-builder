@@ -347,6 +347,8 @@ export const SECTIONS = [
 export type SectionId = (typeof SECTIONS)[number]["id"];
 
 export const USER_CONTENT_HEADING = "User-provided requirements";
+export const CONFIRMED_FUNCTIONAL_HEADING = "Confirmed functional requirements";
+export const CONFIRMED_ACCEPTANCE_HEADING = "Confirmed acceptance criteria";
 
 export const MISSING_TEXT = {
   businessRequirements:

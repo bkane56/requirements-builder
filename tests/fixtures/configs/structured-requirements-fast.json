@@ -1,0 +1,67 @@
+{
+  "projectName": "People Directory",
+  "description": "A small directory with a list and a detail page.",
+  "businessRequirements": "Free-text source that must not be repeated.",
+  "acceptanceCriteria": "Free-text criterion that must not be repeated.",
+  "stretchGoals": "Add a database after the mock API is verified.",
+  "mode": "fast",
+  "appType": "other",
+  "uiLanguages": [],
+  "backendLanguages": [{ "language": "other" }],
+  "runtime": "none",
+  "backendFramework": "none",
+  "uiFrameworks": [],
+  "exposesApi": false,
+  "requirementsContent": {
+    "mode": "structured",
+    "nextFunctionalNumber": 4,
+    "nextCriterionNumber": 3,
+    "functionalRequirements": [
+      {
+        "id": "FR-001",
+        "text": "The UI shows a list of people.",
+        "source": "user",
+        "status": "confirmed"
+      },
+      {
+        "id": "FR-002",
+        "text": "Selecting a person opens that person's detail.",
+        "source": "user",
+        "status": "confirmed"
+      },
+      {
+        "id": "FR-003",
+        "text": "The person record includes an unspecified nickname.",
+        "source": "user",
+        "status": "proposed"
+      }
+    ],
+    "acceptanceCriteria": [
+      {
+        "id": "AC-001",
+        "scope": "project",
+        "requirementIds": [],
+        "text": "Automated frontend and backend tests pass.",
+        "source": "user",
+        "status": "confirmed"
+      },
+      {
+        "id": "AC-002",
+        "scope": "requirement",
+        "requirementIds": ["FR-001", "FR-002"],
+        "text": "The detail page shows the person returned by the API.",
+        "source": "user",
+        "status": "confirmed"
+      }
+    ]
+  },
+  "modules": {
+    "integrationTests": false,
+    "goldenDataset": false,
+    "persistence": false,
+    "security": false,
+    "openapi": false,
+    "postman": false
+  },
+  "coverage": { "enabled": true, "linePercent": 70, "branchPercent": 60 }
+}

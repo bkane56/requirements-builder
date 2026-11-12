@@ -9,6 +9,12 @@ import {
   type Runtime,
   type UiFramework,
 } from "./constants";
+import {
+  defaultRequirementsContent,
+  requirementsContentEqual,
+  requirementsOf,
+  type RequirementsContent,
+} from "./requirements-content";
 import { stacksEqual } from "./toolchain";
 import { uiFrameworksEqual } from "./ui-framework";
 
@@ -18,6 +24,7 @@ export type ProjectConfig = {
   businessRequirements: string;
   acceptanceCriteria: string;
   stretchGoals: string;
+  requirementsContent?: RequirementsContent;
   mode: Mode;
   appType: AppType;
   uiLanguages: LanguageToolchain[];
@@ -36,6 +43,7 @@ export const defaultConfig: ProjectConfig = {
   businessRequirements: "",
   acceptanceCriteria: "",
   stretchGoals: "",
+  requirementsContent: defaultRequirementsContent(),
   mode: "fast",
   appType: "other",
   uiLanguages: [],
@@ -62,6 +70,7 @@ export function configsMatch(left: ProjectConfig, right: ProjectConfig): boolean
     left.businessRequirements === right.businessRequirements &&
     left.acceptanceCriteria === right.acceptanceCriteria &&
     left.stretchGoals === right.stretchGoals &&
+    requirementsContentEqual(requirementsOf(left), requirementsOf(right)) &&
     left.mode === right.mode &&
     left.appType === right.appType &&
     stacksEqual(left.uiLanguages, right.uiLanguages) &&

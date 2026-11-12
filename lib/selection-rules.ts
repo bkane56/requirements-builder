@@ -6,6 +6,7 @@ import {
   type Runtime,
   type StackSide,
 } from "./constants";
+import { normalizeRequirementsContent } from "./requirements-content";
 import { hasLanguage, normalizeStack, type NormalizeStackOptions } from "./toolchain";
 import { normalizeUiFrameworks } from "./ui-framework";
 
@@ -67,6 +68,10 @@ export function normalizeSelections(config: ProjectConfig, options: NormalizeOpt
     const modules = { ...next.modules };
     for (const key of API_MODULES) modules[key] = false;
     next = { ...next, modules };
+  }
+
+  if (next.requirementsContent) {
+    next = { ...next, requirementsContent: normalizeRequirementsContent(next.requirementsContent) };
   }
 
   return next;

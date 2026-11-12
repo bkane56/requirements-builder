@@ -76,6 +76,7 @@ import {
 } from "@/lib/constants";
 import type { Templates } from "@/lib/load-templates";
 import { moduleVersionMap } from "@/lib/module-registry";
+import { requirementsOf, type RequirementsContent } from "@/lib/requirements-content";
 import {
   allowedBackendFrameworks,
   allowedRuntimes,
@@ -85,7 +86,8 @@ import {
 import { defaultToolchain, replaceToolchain, type ToolchainPatch } from "@/lib/toolchain";
 import { defaultUiFramework, replaceUiFramework, type UiFrameworkPatch } from "@/lib/ui-framework";
 import { UI_TEXT } from "@/lib/ui-text";
-import { hasErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
+import { hasErrors, requirementsItemErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
+import { RequirementsEditor } from "./requirements-editor";
 
 type TextFieldName = "projectName" | "description" | "businessRequirements" | "acceptanceCriteria" | "stretchGoals";
 
@@ -135,6 +137,7 @@ const CONFIG_FILE_ERRORS: Record<ConfigFileError, string> = {
 
 const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
   ...TEXT_FIELDS.map((field) => field.name),
+  "requirementsContent",
   "exposesApi",
   "backendLanguages",
   "runtime",
@@ -165,6 +168,11 @@ type PendingAction = {
 const fieldId = (name: keyof ValidationErrors | keyof ProjectConfig) => `field-${name}`;
 
 function focusInvalid(key: keyof ValidationErrors) {
+  if (key === "requirementsContent") {
+    const invalid = document.querySelector<HTMLElement>(`#${fieldId(key)} [aria-invalid="true"]`);
+    (invalid ?? document.getElementById(fieldId(key)))?.focus();
+    return;
+  }
   if (key === "uiLanguages") {
     const checkbox = document.querySelector<HTMLInputElement>(`#${fieldId("uiLanguages")} input[type="checkbox"]`);
     if (checkbox) {
@@ -851,22 +859,26 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         {TEXT_FIELDS.map((field) => {
           const id = fieldId(field.name);
           const error = errors[field.name];
+          const structured = requirementsOf(config).mode === "structured";
+          const preserved =
+            structured && (field.name === "businessRequirements" || field.name === "acceptanceCriteria");
+          const hint = preserved ? UI_TEXT.fields.structuredKept : field.hint;
           const commonProps = {
             id,
             name: field.name,
             value: config[field.name],
             maxLength: field.maxLength,
-            "aria-required": field.required,
+            "aria-required": field.required && !preserved ? true : undefined,
             "aria-invalid": error ? true : undefined,
-            "aria-describedby": describedBy(field.hint && `${id}-hint`, error && `${id}-error`),
+            "aria-describedby": describedBy(hint && `${id}-hint`, error && `${id}-error`),
           };
 
           return (
             <div className="field" key={field.name}>
               <label htmlFor={id}>{field.label}</label>
-              {field.hint && (
+              {hint && (
                 <span id={`${id}-hint`} className="hint">
-                  {field.hint}
+                  {hint}
                 </span>
               )}
               {field.multiline ? (
@@ -878,6 +890,14 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             </div>
           );
         })}
+        <RequirementsEditor
+          config={config}
+          error={errors.requirementsContent}
+          itemErrors={requirementsItemErrors(config)}
+          onChange={(content: RequirementsContent) =>
+            setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
+          }
+        />
 
         <fieldset>
           <legend>{UI_TEXT.legends.mode}</legend>

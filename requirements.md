@@ -188,7 +188,7 @@ Assemble sections in a consistent order, omitting sections that do not apply:
 13. Definition of Done.
 14. Included module versions and optional AI-review notes.
 
-Use clear, imperative, testable language. Distinguish **user-provided requirements**, **selected module requirements**, and **AI suggestions** where feasible.
+Use clear, imperative, testable language. Distinguish **user-provided requirements**, **selected module requirements**, and **AI suggestions** where feasible. Free-text requirements remain available and keep the heading "User-provided requirements". Structured mode writes only confirmed functional requirements and acceptance criteria into the document, under "Confirmed functional requirements" and "Confirmed acceptance criteria". Project-wide criteria apply to the whole project and do not cover a specific functional requirement. Requirement-specific criteria reference one or more functional requirements. Deleting a functional requirement keeps its criteria, removes references to that requirement, and makes a criterion project-wide when its last reference is removed. Proposed items stay in the configuration and are not written into the document. Incomplete proposed text does not block assembly of valid confirmed requirements.
 
 ## 8. AI review behavior
 

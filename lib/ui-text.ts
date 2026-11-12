@@ -11,6 +11,9 @@ export const UI_TEXT = {
     businessRequirementsHint: "Inserted into the document exactly as written.",
     acceptanceCriteria: "Acceptance criteria (optional)",
     acceptanceCriteriaHint: "If left empty, the document lists this as an open question.",
+    structuredKept:
+      "The original business requirements and acceptance criteria stay in the form and are left out of the document while structured requirements are on.",
+    proposedKept: "Proposed items stay in this form and are not written into the document.",
     stretchGoals: "Stretch goals (optional)",
     stretchGoalsHint: "Goals to attempt only after all must-have requirements are verified.",
     applicationType: "Application type",
@@ -31,6 +34,7 @@ export const UI_TEXT = {
     backendLanguages: "Backend languages",
     apiDocumentation: "API documentation",
     testing: "Testing and quality",
+    structuredRequirements: "Structured requirements",
     configurationFile: "Configuration file",
   },
   hints: {
@@ -56,6 +60,23 @@ export const UI_TEXT = {
     restoreDraft: "Restore draft",
     exportConfiguration: "Export configuration",
     importConfiguration: "Import configuration",
+    useStructuredRequirements: "Use structured requirements",
+    returnToFreeText: "Return to free-text requirements",
+    copyCurrentText: "Copy current text",
+    startEmptyStructured: "Start with an empty list",
+    cancel: "Cancel",
+    addFunctionalRequirement: "Add functional requirement",
+    addProjectCriterion: "Add project-wide criterion",
+    addRequirementCriterion: "Add requirement criterion",
+    removeItem: (id: string) => `Remove ${id}`,
+  },
+  requirementStatus: {
+    confirmed: "Confirmed",
+    proposed: "Proposed",
+  },
+  criterionScope: {
+    project: "Project-wide",
+    requirement: "Requirement-specific",
   },
   configFile: {
     imported: "Imported the configuration. Assemble again to update the document.",
@@ -91,6 +112,14 @@ export const UI_TEXT = {
     replaceBody: "Reassemble replaces this document with a new draft from the current configuration.",
     restoreBody: "This discards manual edits and restores the last document assembled from the form.",
     restoreStale: "The restored draft matches the last assembly, not the current configuration.",
+    structuredHeading: "Use structured requirements?",
+    structuredBody:
+      "The original text stays in the form and is left out of the document. Copy it into one functional requirement and one project-wide acceptance criterion, or start with an empty list.",
+    removeHeading: (id: string) => `Remove ${id}?`,
+    removeLinkedBody: (requirementId: string, criterionIds: string, singular: boolean) =>
+      singular
+        ? `${criterionIds} will remain. Its reference to ${requirementId} will be removed. If it loses its last reference, it becomes project-wide.`
+        : `${criterionIds} will remain. Their references to ${requirementId} will be removed. A criterion that loses its last reference becomes project-wide.`,
   },
 } as const;
 
@@ -117,4 +146,14 @@ export const VALIDATION_TEXT = {
   apiModulesRequireApi: "Swagger/OpenAPI and Postman require an HTTP API.",
   lineCoverage: "Line coverage target must be a whole number from 0 to 100.",
   branchCoverage: "Branch coverage target must be a whole number from 0 to 100.",
+  structuredRequirementRequired: "Add a confirmed functional requirement, or return to free-text requirements.",
+  structuredTextRequired: (id: string) => `${id} needs text.`,
+  structuredTextTooLong: (id: string, max: number) => `${id} must be ${max} characters or fewer.`,
+  projectCriterionHasLinks: (id: string) => `${id} is project-wide and cannot reference a functional requirement.`,
+  requirementCriterionNeedsLink: (id: string) => `${id} must reference at least one functional requirement.`,
+  criterionMissingRequirement: (id: string, requirementId: string) => `${id} references ${requirementId}, which does not exist.`,
+  duplicateStructuredId: (id: string) => `${id} is used more than once.`,
+  invalidStructuredId: (id: string) =>
+    id.length > 0 ? `${id} is not a valid identifier.` : "A structured item is missing an identifier.",
+  duplicateCriterionLink: (id: string, requirementId: string) => `${id} lists ${requirementId} more than once.`,
 } as const;

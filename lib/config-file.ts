@@ -10,6 +10,7 @@ import {
   type OptionalModule,
   type UiFramework,
 } from "./constants";
+import { defaultRequirementsContent, parseRequirementsContent } from "./requirements-content";
 import { normalizeSelections } from "./selection-rules";
 import { defaultUiFramework } from "./ui-framework";
 
@@ -95,6 +96,7 @@ function orderedConfig(config: ProjectConfig): ProjectConfig {
     businessRequirements: config.businessRequirements,
     acceptanceCriteria: config.acceptanceCriteria,
     stretchGoals: config.stretchGoals,
+    requirementsContent: config.requirementsContent ?? defaultRequirementsContent(),
     mode: config.mode,
     appType: config.appType,
     uiLanguages: config.uiLanguages,
@@ -115,6 +117,7 @@ function orderedConfig(config: ProjectConfig): ProjectConfig {
 function readConfig(value: unknown): ProjectConfig | null {
   if (!isRecord(value)) return null;
   const text = readTextFields(value);
+  const requirementsContent = readRequirementsField(value);
   const modules = readModules(value.modules);
   const coverage = readCoverage(value.coverage);
   const uiLanguages = readStack(value.uiLanguages);
@@ -122,6 +125,7 @@ function readConfig(value: unknown): ProjectConfig | null {
   const uiFrameworks = readUiFrameworks(value);
   if (
     !text ||
+    !requirementsContent ||
     !modules ||
     !coverage ||
     !uiLanguages ||
@@ -139,6 +143,7 @@ function readConfig(value: unknown): ProjectConfig | null {
   return {
     ...defaultConfig,
     ...text,
+    requirementsContent,
     mode: value.mode,
     appType: value.appType,
     uiLanguages,
@@ -160,6 +165,11 @@ function readUiFrameworks(value: Record<string, unknown>): UiFramework[] | null 
   if (value.frontend === "none" || value.frontend === "no-preference") return [];
   if (includes(UI_FRAMEWORKS, value.frontend)) return [defaultUiFramework(value.frontend)];
   return null;
+}
+
+function readRequirementsField(value: Record<string, unknown>): ProjectConfig["requirementsContent"] | null {
+  if (!Object.hasOwn(value, "requirementsContent")) return defaultRequirementsContent();
+  return parseRequirementsContent(value.requirementsContent);
 }
 
 function readTextFields(value: Record<string, unknown>): Pick<ProjectConfig, (typeof TEXT_FIELDS)[number]> | null {

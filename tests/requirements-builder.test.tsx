@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import fs from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder from "../components/requirements-builder";
 import { assembleRequirements } from "../lib/assemble-requirements";
@@ -905,6 +905,240 @@ describe("configuration advisories", () => {
     expect(document).not.toContain(UI_TEXT.advisories.integrationTestsHttpFullStack);
     expect(screen.getByText(recommendation)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Download Markdown" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+function typeInto(label: string, text: string) {
+  const element = field(label);
+  expect(element.readOnly).toBe(false);
+  expect(element.disabled).toBe(false);
+  let value = element.value;
+  const start = value;
+  for (const character of text) {
+    value += character;
+    fireEvent.change(element, { target: { value } });
+    expect(element.value).toBe(value);
+  }
+  expect(element.value).toBe(start + text);
+}
+
+describe("structured requirements", () => {
+  function openStructured(choice: "Copy current text" | "Start with an empty list") {
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    fireEvent.click(screen.getByRole("button", { name: choice }));
+  }
+
+  it("keeps typed free-text visible, editable, and in the generated document", () => {
+    change("Project name", "People Directory");
+    const businessRequirements = "  Show the people list.\nKeep the spacing.  ";
+    const acceptanceCriteria = "\tThe list is visible.\n";
+    typeInto("Business requirements", businessRequirements);
+    typeInto("Acceptance criteria (optional)", acceptanceCriteria);
+    assemble();
+    const generated = preview();
+    expect(generated).toContain(businessRequirements);
+    expect(generated).toContain(acceptanceCriteria);
+    expect(generated).toContain("### User-provided requirements");
+
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    typeInto("Business requirements", "Still editable.");
+    typeInto("Acceptance criteria (optional)", "Still editable.");
+    expect(field("Business requirements").value).toBe(`${businessRequirements}Still editable.`);
+    expect(field("Acceptance criteria (optional)").value).toBe(`${acceptanceCriteria}Still editable.`);
+    fireEvent.click(screen.getByRole("button", { name: "Copy current text" }));
+
+    expect(field("Business requirements").readOnly).toBe(false);
+    expect(field("Acceptance criteria (optional)").readOnly).toBe(false);
+    expect(screen.getAllByText(UI_TEXT.fields.structuredKept).length).toBeGreaterThan(0);
+    expect(field("FR-001 text").value).toBe(`${businessRequirements}Still editable.`);
+    expect(field("AC-001 text").value).toBe(`${acceptanceCriteria}Still editable.`);
+    typeInto("FR-001 text", " Added.");
+    typeInto("AC-001 text", " Added.");
+    assemble();
+    const structuredDocument = preview();
+    expect(structuredDocument).toContain(`${businessRequirements}Still editable. Added.`);
+    expect(structuredDocument).toContain(`${acceptanceCriteria}Still editable. Added.`);
+    expect(structuredDocument).toContain("### Confirmed functional requirements");
+    expect(structuredDocument).not.toContain("### User-provided requirements");
+    fireEvent.click(screen.getByRole("button", { name: "Add functional requirement" }));
+    expect(field("FR-001 text").value).toBe(`${businessRequirements}Still editable. Added.`);
+    expect(field("FR-002 text").value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Return to free-text requirements" }));
+    const restoredBusiness = field("Business requirements");
+    const restoredAcceptance = field("Acceptance criteria (optional)");
+    expect(restoredBusiness.readOnly).toBe(false);
+    expect(restoredAcceptance.readOnly).toBe(false);
+    expect(restoredBusiness.value).toBe(`${businessRequirements}Still editable.`);
+    expect(restoredAcceptance.value).toBe(`${acceptanceCriteria}Still editable.`);
+    typeInto("Business requirements", " Back.");
+    assemble();
+    expect(preview()).toContain(`${businessRequirements}Still editable. Back.`);
+    expect(preview()).not.toContain("**FR-001.**");
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    expect(screen.queryByRole("heading", { name: "Use structured requirements?" })).toBeNull();
+    expect(field("Business requirements").readOnly).toBe(false);
+    expect(field("Business requirements").value).toBe(`${businessRequirements}Still editable. Back.`);
+    expect(field("FR-001 text").value).toBe(`${businessRequirements}Still editable. Added.`);
+  });
+
+  it("starts structured mode without copying and keeps the original text", () => {
+    fillRequired("Free-text source that must not be repeated.");
+    openStructured("Start with an empty list");
+    const source = field("Business requirements");
+    expect(source.value).toBe("Free-text source that must not be repeated.");
+    expect(source.readOnly).toBe(false);
+    expect(source.disabled).toBe(false);
+    expect(screen.getAllByText(UI_TEXT.fields.structuredKept).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("FR-001 text")).toBeNull();
+    assemble();
+    expect(screen.getByText("Add a confirmed functional requirement, or return to free-text requirements.")).toBeTruthy();
+    expect(preview()).toBe("");
+    expect(document.activeElement).toBe(document.getElementById("field-requirementsContent"));
+  });
+
+  it("copies the current text once and leaves proposed items out of the document", () => {
+    const businessRequirements = "  Show the people list.\n";
+    fillRequired(businessRequirements);
+    change("Acceptance criteria (optional)", "Automated tests pass.");
+    openStructured("Copy current text");
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    expect(field("AC-001 scope").value).toBe("project");
+    expect(field("Acceptance criteria (optional)").value).toBe("Automated tests pass.");
+    expect(field("Acceptance criteria (optional)").readOnly).toBe(false);
+    expect(field("Business requirements").readOnly).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add functional requirement" }));
+    fireEvent.change(field("FR-002 text"), { target: { value: "The person record includes an unspecified nickname." } });
+    change("FR-002 status", "proposed");
+    assemble();
+    const documentText = preview();
+    expect(documentText).toContain("**FR-001.**   Show the people list.");
+    expect(documentText).toContain("Applies to the whole project.");
+    expect(documentText).not.toContain("unspecified nickname");
+    expect(documentText.split(businessRequirements)).toHaveLength(2);
+    expect(screen.getByLabelText("FR-002 text")).toBeTruthy();
+  });
+
+  it("removes an unreferenced requirement immediately and asks before removing a linked one", () => {
+    fillRequired("Show the people list.");
+    openStructured("Copy current text");
+    fireEvent.click(screen.getByRole("button", { name: "Remove FR-001" }));
+    expect(screen.queryByLabelText("FR-001 text")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Remove FR-001?" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add functional requirement" }));
+    fireEvent.change(field("FR-002 text"), { target: { value: "Show the people list." } });
+    fireEvent.click(screen.getByRole("button", { name: "Add requirement criterion" }));
+    fireEvent.change(field("AC-001 text"), { target: { value: "The list is visible." } });
+    fireEvent.click(field("AC-001 applies to FR-002"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove FR-002" }));
+    const confirmation = screen.getByRole("region", { name: "Remove FR-002?" });
+    expect(
+      within(confirmation).getByText(
+        "AC-001 will remain. Its reference to FR-002 will be removed. If it loses its last reference, it becomes project-wide.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+    expect(field("FR-002 text").value).toBe("Show the people list.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove FR-002" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Remove FR-002?" })).getByRole("button", { name: "Remove FR-002" }));
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    expect(field("AC-001 text").value).toBe("The list is visible.");
+    expect(field("AC-001 scope").value).toBe("project");
+    expect(screen.queryByLabelText("AC-001 applies to FR-002")).toBeNull();
+  });
+
+  it("cancels the mode change and can make a criterion project-wide", () => {
+    fillRequired("Show the people list.");
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(field("Business requirements").readOnly).toBe(false);
+    expect(screen.queryByLabelText("FR-001 text")).toBeNull();
+
+    openStructured("Copy current text");
+    fireEvent.click(screen.getByRole("button", { name: "Add requirement criterion" }));
+    fireEvent.change(field("AC-001 text"), { target: { value: "The list is visible." } });
+    fireEvent.click(field("AC-001 applies to FR-001"));
+    change("AC-001 scope", "project");
+    expect(field("AC-001 scope").value).toBe("project");
+    expect(screen.queryByLabelText("AC-001 applies to FR-001")).toBeNull();
+  });
+
+  it("assembles confirmed requirements while an incomplete proposal stays in the editor", () => {
+    fillRequired("Show the people list.");
+    openStructured("Copy current text");
+    fireEvent.click(screen.getByRole("button", { name: "Add functional requirement" }));
+    change("FR-002 status", "proposed");
+    expect(screen.getAllByText("FR-002 needs text.")).toHaveLength(1);
+    expect(field("FR-002 text").getAttribute("aria-invalid")).toBeNull();
+    assemble();
+    const documentText = preview();
+    expect(documentText).toContain("### Confirmed functional requirements");
+    expect(documentText).toContain("**FR-001.** Show the people list.");
+    expect(documentText).not.toContain("**FR-002.**");
+    expect(screen.getByLabelText("FR-002 text")).toBeTruthy();
+
+    change("FR-002 status", "confirmed");
+    assemble();
+    expect(screen.getAllByText("FR-002 needs text.").length).toBeGreaterThan(1);
+    expect(preview()).toBe(documentText);
+    expect(document.activeElement).toBe(document.getElementById("field-FR-002-text"));
+  });
+
+  it("marks structured edits as stale and keeps manual markdown until confirmed", () => {
+    fillRequired("Show the people list.");
+    openStructured("Copy current text");
+    assemble();
+    const generated = preview();
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+
+    fireEvent.change(field("FR-001 text"), { target: { value: "Show the updated list." } });
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(preview()).toBe(generated);
+    fireEvent.change(field("FR-001 text"), { target: { value: "Show the people list." } });
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+
+    change("FR-001 status", "proposed");
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(preview()).toBe(generated);
+    change("FR-001 status", "confirmed");
+    expect(screen.queryByText(STALE_NOTICE)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add project-wide criterion" }));
+    fireEvent.change(field("AC-001 text"), { target: { value: "The list is visible." } });
+    change("AC-001 scope", "requirement");
+    fireEvent.click(field("AC-001 applies to FR-001"));
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(preview()).toBe(generated);
+    fireEvent.click(screen.getByRole("button", { name: "Remove AC-001" }));
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Return to free-text requirements" }));
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(preview()).toBe(generated);
+    const edited = `${generated}\nmanual note`;
+    editDocument(edited);
+    assemble();
+    expect(screen.getByRole("heading", { name: "Replace manual edits?" })).toBeTruthy();
+    fireEvent.click(namedButton("Keep edits"));
+    expect(preview()).toBe(edited);
+  });
+
+  it("returns to free-text requirements without discarding either copy", () => {
+    fillRequired("Show the people list.");
+    openStructured("Copy current text");
+    fireEvent.click(screen.getByRole("button", { name: "Return to free-text requirements" }));
+    const source = field("Business requirements");
+    expect(source.readOnly).toBe(false);
+    expect(source.value).toBe("Show the people list.");
+    assemble();
+    expect(preview()).toContain("Show the people list.");
+    expect(preview()).not.toContain("**FR-001.**");
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    expect(screen.queryByRole("heading", { name: "Use structured requirements?" })).toBeNull();
+    expect(field("FR-001 text").value).toBe("Show the people list.");
   });
 });
 

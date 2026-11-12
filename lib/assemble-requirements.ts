@@ -7,6 +7,8 @@ import {
   NO_STRETCH_GOALS,
   OPEN_QUESTIONS,
   RUNTIME_LABELS,
+  CONFIRMED_ACCEPTANCE_HEADING,
+  CONFIRMED_FUNCTIONAL_HEADING,
   SECTIONS,
   USER_CONTENT_HEADING,
   type Language,
@@ -16,6 +18,15 @@ import {
 } from "./constants";
 import type { Templates } from "./load-templates";
 import { resolveModules, type RequirementModule } from "./module-registry";
+import {
+  confirmedAcceptanceCriteria,
+  confirmedFunctionalRequirements,
+  formatAcceptanceEntries,
+  formatFunctionalEntries,
+  requirementsOf,
+  uncoveredRequirementIds,
+  uncoveredRequirementQuestion,
+} from "./requirements-content";
 import { hasBackendSelection, hasUserInterface } from "./selection-rules";
 import {
   apiStartCommand,
@@ -30,6 +41,24 @@ import { uiFrameworkPlaceholderValues, uiFrameworkSummary } from "./ui-framework
 const PLACEHOLDER = /\{\{([^}]*)\}\}/g;
 
 const isBlank = (value: string) => value.trim().length === 0;
+
+function functionalText(config: ProjectConfig): string {
+  const content = requirementsOf(config);
+  if (content.mode !== "structured") {
+    return isBlank(config.businessRequirements) ? MISSING_TEXT.businessRequirements : config.businessRequirements;
+  }
+  const confirmed = confirmedFunctionalRequirements(content);
+  return confirmed.length === 0 ? MISSING_TEXT.businessRequirements : formatFunctionalEntries(confirmed);
+}
+
+function acceptanceText(config: ProjectConfig): string {
+  const content = requirementsOf(config);
+  if (content.mode !== "structured") {
+    return isBlank(config.acceptanceCriteria) ? MISSING_TEXT.acceptanceCriteria : config.acceptanceCriteria;
+  }
+  const confirmed = confirmedAcceptanceCriteria(content);
+  return confirmed.length === 0 ? MISSING_TEXT.acceptanceCriteria : formatAcceptanceEntries(confirmed);
+}
 
 function formatStack(label: string, entries: LanguageToolchain[]): string {
   const choices = entries.map(toolchainSummary);
@@ -75,18 +104,27 @@ function userBlocks(sectionId: SectionId, config: ProjectConfig, modules: Requir
     }
     case "functional":
       return [
-        `### ${USER_CONTENT_HEADING}`,
-        isBlank(config.businessRequirements) ? MISSING_TEXT.businessRequirements : config.businessRequirements,
+        `### ${requirementsOf(config).mode === "structured" ? CONFIRMED_FUNCTIONAL_HEADING : USER_CONTENT_HEADING}`,
+        functionalText(config),
       ];
     case "acceptance":
       return [
-        `### ${USER_CONTENT_HEADING}`,
-        isBlank(config.acceptanceCriteria) ? MISSING_TEXT.acceptanceCriteria : config.acceptanceCriteria,
+        `### ${requirementsOf(config).mode === "structured" ? CONFIRMED_ACCEPTANCE_HEADING : USER_CONTENT_HEADING}`,
+        acceptanceText(config),
       ];
     case "assumptions": {
       const questions: string[] = [];
-      if (isBlank(config.businessRequirements)) questions.push(OPEN_QUESTIONS.businessRequirements);
-      if (isBlank(config.acceptanceCriteria)) questions.push(OPEN_QUESTIONS.acceptanceCriteria);
+      const content = requirementsOf(config);
+      if (content.mode === "structured") {
+        if (confirmedFunctionalRequirements(content).length === 0) questions.push(OPEN_QUESTIONS.businessRequirements);
+        if (confirmedAcceptanceCriteria(content).length === 0) questions.push(OPEN_QUESTIONS.acceptanceCriteria);
+        else {
+          for (const id of uncoveredRequirementIds(content)) questions.push(uncoveredRequirementQuestion(id));
+        }
+      } else {
+        if (isBlank(config.businessRequirements)) questions.push(OPEN_QUESTIONS.businessRequirements);
+        if (isBlank(config.acceptanceCriteria)) questions.push(OPEN_QUESTIONS.acceptanceCriteria);
+      }
       if (config.backendLanguages.length === 0) questions.push(OPEN_QUESTIONS.backendLanguage);
       else if (config.backendLanguages.some((entry) => entry.language === "other")) {
         questions.push(OPEN_QUESTIONS.backendOther);
