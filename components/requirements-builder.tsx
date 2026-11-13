@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { evaluateAdvisories } from "@/lib/advisories";
+import {
+  applyRequirementChange,
+  type PreparedRequirementChange,
+  type RequirementDraft,
+} from "@/lib/ai/review";
 import { assembleRequirements } from "@/lib/assemble-requirements";
 import { configsMatch, defaultConfig, type ProjectConfig } from "@/lib/config";
 import {
@@ -598,6 +603,16 @@ function UiFrameworks({
   );
 }
 
+export function commitPreparedRequirementChange(
+  current: ProjectConfig,
+  draft: RequirementDraft,
+  prepared: PreparedRequirementChange,
+): ProjectConfig {
+  const next = applyRequirementChange(requirementsOf(current), draft, prepared);
+  if (!next) return current;
+  return normalizeSelections({ ...current, requirementsContent: next });
+}
+
 export default function RequirementsBuilder({ templates }: { templates: Templates }) {
   const [config, setConfig] = useState<ProjectConfig>(defaultConfig);
   const [errors, setErrors] = useState<ValidationErrors>({});
@@ -1126,9 +1141,9 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         </form>
         <RequirementsAnalysis
           config={config}
-          onRequirementsChange={(content: RequirementsContent) =>
-            setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
-          }
+          onApplyPrepared={(draft: RequirementDraft, prepared: PreparedRequirementChange) => {
+            setConfig((current) => commitPreparedRequirementChange(current, draft, prepared));
+          }}
         />
       </section>
 

@@ -44,6 +44,13 @@ type StoredAnalysis = {
   result: AnalysisResult;
 };
 
+type PendingRequirementApply = {
+  findingId: string;
+  prepared: PreparedRequirementChange;
+  expectedFingerprint: string;
+  applied: AppliedChange;
+};
+
 const GROUPS = ["clarification", "contradiction", "enhancement"] as const;
 
 function useInlineConfirmation(active: boolean, cancelRef: RefObject<HTMLButtonElement | null>) {
@@ -73,10 +80,10 @@ function useInlineConfirmation(active: boolean, cancelRef: RefObject<HTMLButtonE
 
 export function RequirementsAnalysis({
   config,
-  onRequirementsChange,
+  onApplyPrepared,
 }: {
   config: ProjectConfig;
-  onRequirementsChange: (content: RequirementsContent) => void;
+  onApplyPrepared: (draft: RequirementDraft, prepared: PreparedRequirementChange) => void;
 }) {
   const content = requirementsOf(config);
   const fingerprint = analysisFingerprint(buildAnalysisInput(config));
@@ -96,9 +103,42 @@ export function RequirementsAnalysis({
   const [stored, setStored] = useState<StoredAnalysis | null>(null);
   const [session, setSession] = useState<ReviewSession | null>(null);
   const [draftFindingId, setDraftFindingId] = useState<string | null>(null);
+  const [pendingApply, setPendingApply] = useState<PendingRequirementApply | null>(null);
+  const [rejectedFindingId, setRejectedFindingId] = useState<string | null>(null);
 
   const stale = stored !== null && stored.fingerprint !== fingerprint;
   const structured = content.mode === "structured";
+  if (pendingApply) {
+    const actualFingerprint = requirementsChangeFingerprint(content);
+    if (actualFingerprint === pendingApply.expectedFingerprint) {
+      const findingId = pendingApply.findingId;
+      const applied = pendingApply.applied;
+      setPendingApply(null);
+      setRejectedFindingId(null);
+      setDraftFindingId(null);
+      setSession((current) => (current ? markReviewApplied(current, findingId, applied) : current));
+    } else if (actualFingerprint !== pendingApply.prepared.fingerprint) {
+      setPendingApply(null);
+      setRejectedFindingId(pendingApply.findingId);
+    }
+  }
+
+  function requestApply(findingId: string, draft: RequirementDraft, prepared: PreparedRequirementChange) {
+    const next = applyRequirementChange(content, draft, prepared);
+    if (!next) return false;
+    setRejectedFindingId(null);
+    setPendingApply({
+      findingId,
+      prepared,
+      expectedFingerprint: requirementsChangeFingerprint(next),
+      applied: {
+        kind: prepared.preview.action.endsWith("criterion") ? "criterion" : "functional",
+        id: prepared.preview.id,
+      },
+    });
+    onApplyPrepared(draft, prepared);
+    return true;
+  }
 
   function requestAnalysis(trigger: HTMLElement) {
     if (inFlight || confirming || confirmingRerun) return;
@@ -296,6 +336,11 @@ export function RequirementsAnalysis({
                           stale={stale}
                           structured={structured}
                           draftOpen={draftFindingId === finding.id}
+                          acceptedFingerprint={
+                            pendingApply?.findingId === finding.id ? pendingApply.expectedFingerprint : null
+                          }
+                          applyRejected={rejectedFindingId === finding.id}
+                          onClearRejection={() => setRejectedFindingId((current) => (current === finding.id ? null : current))}
                           onDecision={(decision) => updateSession(setReviewDecision(session, finding.id, decision))}
                           onAnswer={(answer) => {
                             const next = setReviewAnswer(session, finding.id, answer);
@@ -307,11 +352,7 @@ export function RequirementsAnalysis({
                             if (stale || !structured) return;
                             setDraftFindingId(draftFindingId === finding.id ? null : finding.id);
                           }}
-                          onApply={(next, applied) => {
-                            onRequirementsChange(next);
-                            updateSession(markReviewApplied(session, finding.id, applied));
-                            setDraftFindingId(null);
-                          }}
+                          onApply={(draft, prepared) => requestApply(finding.id, draft, prepared)}
                         />
                       ))}
                     </ul>
@@ -333,6 +374,9 @@ function FindingReview({
   stale,
   structured,
   draftOpen,
+  acceptedFingerprint,
+  applyRejected,
+  onClearRejection,
   onDecision,
   onAnswer,
   onToggleDraft,
@@ -344,10 +388,13 @@ function FindingReview({
   stale: boolean;
   structured: boolean;
   draftOpen: boolean;
+  acceptedFingerprint: string | null;
+  applyRejected: boolean;
+  onClearRejection: () => void;
   onDecision: (decision: ReviewDecision) => void;
   onAnswer: (answer: string) => boolean;
   onToggleDraft: () => void;
-  onApply: (content: RequirementsContent, applied: AppliedChange) => void;
+  onApply: (draft: RequirementDraft, prepared: PreparedRequirementChange) => boolean;
 }) {
   const record = reviewRecord(session, finding.id);
   const [answer, setAnswer] = useState(record.answer ?? "");
@@ -402,7 +449,15 @@ function FindingReview({
       {!structured && <p className="hint">{UI_TEXT.analysis.structuredRequired}</p>}
       {stale && <p className="hint">{UI_TEXT.analysis.staleBlocked}</p>}
       {draftOpen && structured && (
-        <RequirementChangeForm findingId={finding.id} content={content} stale={stale} onApply={onApply} />
+        <RequirementChangeForm
+          findingId={finding.id}
+          content={content}
+          stale={stale}
+          acceptedFingerprint={acceptedFingerprint}
+          applyRejected={applyRejected}
+          onClearRejection={onClearRejection}
+          onApply={onApply}
+        />
       )}
     </li>
   );
@@ -412,12 +467,18 @@ function RequirementChangeForm({
   findingId,
   content,
   stale,
+  acceptedFingerprint,
+  applyRejected,
+  onClearRejection,
   onApply,
 }: {
   findingId: string;
   content: RequirementsContent;
   stale: boolean;
-  onApply: (content: RequirementsContent, applied: AppliedChange) => void;
+  acceptedFingerprint: string | null;
+  applyRejected: boolean;
+  onClearRejection: () => void;
+  onApply: (draft: RequirementDraft, prepared: PreparedRequirementChange) => boolean;
 }) {
   const [action, setAction] = useState<RequirementDraft["action"]>("create-functional");
   const [targetId, setTargetId] = useState("");
@@ -430,7 +491,17 @@ function RequirementChangeForm({
   const replacementCancelRef = useRef<HTMLButtonElement>(null);
   const replacementConfirmation = useInlineConfirmation(confirming, replacementCancelRef);
   const requirementsFingerprint = requirementsChangeFingerprint(content);
-  if (prepared && prepared.fingerprint !== requirementsFingerprint) {
+  if (applyRejected) {
+    if (prepared !== null || confirming || message !== UI_TEXT.analysis.applyRejected) {
+      setPrepared(null);
+      setConfirming(false);
+      setMessage(UI_TEXT.analysis.applyRejected);
+    }
+  } else if (
+    prepared &&
+    prepared.fingerprint !== requirementsFingerprint &&
+    requirementsFingerprint !== acceptedFingerprint
+  ) {
     setPrepared(null);
     setConfirming(false);
     setMessage(UI_TEXT.analysis.previewStale);
@@ -447,6 +518,7 @@ function RequirementChangeForm({
   }
 
   function changeDraft(update: () => void) {
+    onClearRejection();
     update();
     setPrepared(null);
     setConfirming(false);
@@ -454,23 +526,18 @@ function RequirementChangeForm({
   }
 
   function applyPrepared(replaceConfirmed: boolean) {
-    if (stale || !prepared || prepared.fingerprint !== requirementsChangeFingerprint(content)) {
+    if (stale || !prepared || prepared.fingerprint !== requirementsFingerprint) {
       setPrepared(null);
       setConfirming(false);
       setMessage(UI_TEXT.analysis.previewStale);
       return;
     }
-    const next = applyRequirementChange(content, draft(replaceConfirmed), prepared);
-    if (!next) {
+    const accepted = onApply(draft(replaceConfirmed), prepared);
+    if (!accepted) {
       setPrepared(null);
       setConfirming(false);
       setMessage(UI_TEXT.analysis.previewStale);
-      return;
     }
-    onApply(next, {
-      kind: prepared.preview.action.endsWith("criterion") ? "criterion" : "functional",
-      id: prepared.preview.id,
-    });
   }
 
   function cancelReplacement() {
@@ -545,6 +612,7 @@ function RequirementChangeForm({
         disabled={stale}
         onClick={() => {
           if (stale) return;
+          onClearRejection();
           const next = prepareRequirementChange(content, draft(false));
           setPrepared(next);
           setConfirming(false);

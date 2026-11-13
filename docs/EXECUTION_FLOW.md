@@ -240,7 +240,7 @@ On success, the page replaces `config`, runs `validateConfig`, clears `pending` 
 
 ## 12. Optional AI analysis
 
-The analysis panel is rendered after the configuration form. It receives the current configuration. It updates that configuration only when you explicitly apply a previewed requirement change. A review decision, a clarification answer, or a dismissed finding does not change the configuration.
+The analysis panel is rendered after the configuration form. It receives the current configuration. It updates that configuration only when you explicitly apply a previewed requirement change. The update runs against the latest structured requirements inside the form state update. If those requirements changed after the preview, the update is discarded, the newer requirements stay, and the panel says the change was not applied. A new preview is required before another attempt. The finding is marked applied only when the saved requirements match that preview. A review decision, a clarification answer, or a dismissed finding does not change the configuration.
 
 The first click opens an in-page confirmation. Nothing is sent before that confirmation. Escape or Cancel closes it.
 

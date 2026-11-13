@@ -211,6 +211,8 @@ export const UI_TEXT = {
     previewCurrentText: "Current authoritative text",
     replacesAuthoritative: (id: string) => `This replaces the authoritative text of ${id}.`,
     previewStale: "The requirements changed after this preview. Preview the change again before applying it.",
+    applyRejected:
+      "This change was not applied. The requirements changed after the preview. Preview the change again before applying it.",
     sources: {
       user: "User",
       ai: "AI",

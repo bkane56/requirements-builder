@@ -3,13 +3,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import RequirementsBuilder from "../components/requirements-builder";
+import RequirementsBuilder, { commitPreparedRequirementChange } from "../components/requirements-builder";
 import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
+import { prepareRequirementChange } from "../lib/ai/review";
 import { assembleRequirements } from "../lib/assemble-requirements";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { serializeConfig } from "../lib/config-file";
 import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
+import {
+  beginStructuredRequirements,
+  defaultRequirementsContent,
+  requirementsOf,
+  updateFunctionalRequirement,
+} from "../lib/requirements-content";
 import { normalizeSelections } from "../lib/selection-rules";
 import { defaultToolchain } from "../lib/toolchain";
 import { defaultUiFramework } from "../lib/ui-framework";
@@ -1679,6 +1686,7 @@ describe("AI requirements analysis", () => {
     expect(field("FR-001 text").value).toBe("Users can upload a receipt up to 10 MB.");
     expect(field("FR-001 status").value).toBe("proposed");
     expect(screen.getByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeTruthy();
+    expect(screen.queryByText(UI_TEXT.analysis.applyRejected)).toBeNull();
     expect(field("Business requirements").value).toBe(businessRequirements);
     assemble();
     expect(screen.getByText("Add a confirmed functional requirement, or return to free-text requirements.")).toBeTruthy();
@@ -1738,6 +1746,85 @@ describe("AI requirements analysis", () => {
     expect(documentText).not.toContain("(approved AI proposal)");
     expect(documentText).not.toContain("Clarify the upload limit.");
     expect(field("Business requirements").value).toBe(businessRequirements);
+  });
+
+  it("does not let an older apply overwrite a newer structured edit", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    const edited = "Edited in the structured editor.";
+    const proposed = "Users can upload a receipt up to 10 MB.";
+    fillRequired(businessRequirements);
+    beginStructured("Copy current text");
+    await receiveAnalysis(instructedFinding);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    change(UI_TEXT.analysis.changeLabel("F-001"), "update-functional");
+    change(UI_TEXT.analysis.targetLabel("F-001"), "FR-001");
+    fireEvent.change(field(UI_TEXT.analysis.proposedText("F-001")), { target: { value: proposed } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+
+    change("FR-001 text", edited);
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.authoritativeReplace("FR-001") })).toBeNull();
+    expect(field("FR-001 text").value).toBe(edited);
+    expect(screen.queryByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeNull();
+
+    const original = beginStructuredRequirements(defaultRequirementsContent(), "copy", businessRequirements, "");
+    const draft = {
+      action: "update-functional" as const,
+      id: "FR-001",
+      text: proposed,
+      replaceConfirmed: true,
+    };
+    const prepared = prepareRequirementChange(original, draft);
+    expect(prepared).not.toBeNull();
+    const newer = updateFunctionalRequirement(original, "FR-001", { text: edited });
+    const current = {
+      ...defaultConfig,
+      projectName: "Receipt Tracker",
+      businessRequirements,
+      requirementsContent: newer,
+    };
+    const committed = commitPreparedRequirementChange(current, draft, prepared!);
+    expect(committed).toBe(current);
+    expect(requirementsOf(committed).functionalRequirements[0]?.text).toBe(edited);
+    expect(requirementsOf(committed).functionalRequirements[0]?.source).toBe("user");
+    expect(requirementsOf(committed).nextFunctionalNumber).toBe(newer.nextFunctionalNumber);
+    expect(field("FR-001 text").value).toBe(edited);
+  });
+
+  it("reports a parent rejection after a preview that was valid locally", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    const edited = "Edited in the structured editor.";
+    const proposed = "Users can upload a receipt up to 10 MB.";
+    fillRequired(businessRequirements);
+    beginStructured("Copy current text");
+    await receiveAnalysis(instructedFinding);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    fireEvent.change(field(UI_TEXT.analysis.proposedText("F-001")), { target: { value: proposed } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    const apply = screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") });
+    const requirement = field("FR-001 text");
+    const handler = (element: HTMLElement, name: string) => {
+      const key = Object.keys(element).find((item) => item.startsWith("__reactProps$"));
+      const props = key ? (element as unknown as Record<string, Record<string, (value?: unknown) => void>>)[key] : null;
+      const callback = props?.[name];
+      if (!callback) throw new Error(`Missing ${name}`);
+      return callback;
+    };
+
+    // One update: the editor commits first, then Apply uses the preview that was still valid.
+    act(() => {
+      handler(requirement, "onChange")({ target: { value: edited } });
+      handler(apply, "onClick")();
+    });
+
+    expect(field("FR-001 text").value).toBe(edited);
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    expect(screen.queryByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeNull();
+    expect(screen.queryByText(UI_TEXT.analysis.appliedNote("FR-002"))).toBeNull();
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", UI_TEXT.analysis.applyRejected);
   });
 
   it("does not write review answers into the configuration file", async () => {
