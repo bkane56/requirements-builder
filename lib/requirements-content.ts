@@ -102,7 +102,11 @@ export function requirementsContentEqual(left: RequirementsContent, right: Requi
   return JSON.stringify(normalizeRequirementsContent(left)) === JSON.stringify(normalizeRequirementsContent(right));
 }
 
-export function addFunctionalRequirement(content: RequirementsContent, text = ""): RequirementsContent {
+export function addFunctionalRequirement(
+  content: RequirementsContent,
+  text = "",
+  options?: { source?: RequirementSource; status?: RequirementStatus },
+): RequirementsContent {
   const current = normalizeRequirementsContent(content);
   const id = formatRequirementId("FR", current.nextFunctionalNumber);
   return normalizeRequirementsContent({
@@ -110,7 +114,7 @@ export function addFunctionalRequirement(content: RequirementsContent, text = ""
     nextFunctionalNumber: current.nextFunctionalNumber + 1,
     functionalRequirements: [
       ...current.functionalRequirements,
-      { id, text, source: "user", status: "confirmed" },
+      { id, text, source: options?.source ?? "user", status: options?.status ?? "confirmed" },
     ],
   });
 }
@@ -149,7 +153,13 @@ export function removeFunctionalRequirement(content: RequirementsContent, id: st
 
 export function addAcceptanceCriterion(
   content: RequirementsContent,
-  input: { scope: CriterionScope; text?: string; requirementIds?: string[] },
+  input: {
+    scope: CriterionScope;
+    text?: string;
+    requirementIds?: string[];
+    source?: RequirementSource;
+    status?: RequirementStatus;
+  },
 ): RequirementsContent {
   const current = normalizeRequirementsContent(content);
   const id = formatRequirementId("AC", current.nextCriterionNumber);
@@ -157,8 +167,8 @@ export function addAcceptanceCriterion(
     id,
     scope: input.scope,
     text: input.text ?? "",
-    source: "user",
-    status: "confirmed",
+    source: input.source ?? "user",
+    status: input.status ?? "confirmed",
     requirementIds: input.scope === "project" ? [] : [...(input.requirementIds ?? [])],
   };
   return normalizeRequirementsContent({

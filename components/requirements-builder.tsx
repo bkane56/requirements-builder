@@ -1124,7 +1124,12 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           </p>
         )}
         </form>
-        <RequirementsAnalysis config={config} />
+        <RequirementsAnalysis
+          config={config}
+          onRequirementsChange={(content: RequirementsContent) =>
+            setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
+          }
+        />
       </section>
 
       <section className="output" aria-labelledby="preview-heading">

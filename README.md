@@ -86,7 +86,9 @@ The browser may show its generic leave prompt while the document has manual edit
 
 Analyze requirements with AI reviews the current form. It does not run when you assemble a draft, and it does not need a document to exist. The first click in a page session asks before anything is sent. Cancel, or Escape, sends nothing. A later click in that page session sends the current form.
 
-The request includes the project name, description, active requirements, and selected technology choices. In structured mode the preserved free-text fields are not sent. Template text, package manager, linter, test runner, Node version, coverage numbers, and stretch goals are not sent. User text is data for the model, not instructions. Findings stay on the page. They are not written into `PROJECT_CONFIGURATION.json` or the Markdown document. Changing the form marks an existing analysis as not matching the current requirements. A response that belongs to an older request does not replace a newer analysis.
+The request includes the project name, description, active requirements, and selected technology choices. In structured mode the preserved free-text fields are not sent. Template text, package manager, linter, test runner, Node version, coverage numbers, and stretch goals are not sent. User text is data for the model, not instructions. Findings stay on the page until you explicitly apply a proposed requirement change. Review decisions and clarification answers stay in the current page session. They are not written into `PROJECT_CONFIGURATION.json`. A saved answer keeps its exact text and stays associated with that analysis run and finding. This version does not send that answer to a model. Changing the form marks an existing analysis as not matching the current requirements, and a change cannot be applied from that analysis until you run it again. A response that belongs to an older request does not replace a newer analysis.
+
+In structured mode you can propose one requirement change. The suggested action is reference only. You write the requirement text. The preview shows the identifier, source, status, exact text, and, for an acceptance criterion, the scope and linked requirements. If the structured requirements change after that preview, it is discarded and you preview again before anything is written. A new item is a proposed user requirement and stays out of the Markdown document until you confirm it in the structured requirements editor. Updating a proposed item applies after the preview. Updating a confirmed item shows the current authoritative text and a suggested replacement. It does not change the confirmed text until you confirm that the authoritative requirement will change. The identifier and source stay the same. Running analysis again asks before it discards decisions and answers. Requirements already written into the form stay. Free-text mode does not apply a change and does not switch modes for you.
 
 An empty result uses this sentence: "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct."
 
@@ -123,11 +125,12 @@ Package manager choices are Yarn, npm, and pnpm for JavaScript and TypeScript (d
 - Next.js and React + Vite can both be checked. Each keeps its own routing, client state, and server data choices. Forms and styling are not choices yet.
 - JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter. UI and backend selections are separate packages. There is no monorepo or workspace choice.
 - AI analysis has no authentication. Do not enable it on a public server. The in-memory request limit is not public protection.
-- AI findings cannot be applied to the form or the document from this screen.
+- Review decisions and clarification answers stay in the current page session. Reloading the page drops them. They are not part of `PROJECT_CONFIGURATION.json`.
+- A change from an analysis can be applied only in structured mode, only while that analysis still matches the current requirements, and only after you preview it. A new item starts as proposed. Confirming it for the document is a separate action in the structured requirements editor. A confirmed item does not change until you confirm that its authoritative text will change.
 - A host that only serves static files cannot answer `POST /api/ai-review`.
 
 ### Deferred to later stages
 
 - Stage 2C: further integration polish.
-- Applying an AI finding to the requirements or the document.
+- A later writing step that drafts project requirements from confirmed requirements and saved clarification answers.
 - Stage 4: Fast Mode presets, one-click reset, and demo polish.

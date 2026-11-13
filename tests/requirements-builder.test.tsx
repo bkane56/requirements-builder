@@ -1329,17 +1329,20 @@ describe("AI requirements analysis", () => {
     const { fetchMock } = holdAnalysisFetch();
 
     fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    const privacy = screen.getByRole("region", { name: UI_TEXT.analysis.confirmHeading });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeTruthy();
+    expect(document.activeElement).toBe(within(privacy).getByRole("button", { name: UI_TEXT.buttons.cancel }));
 
-    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }));
+    fireEvent.click(within(privacy).getByRole("button", { name: UI_TEXT.buttons.cancel }));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
 
     fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
     fireEvent.keyDown(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }), { key: "Escape" });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
   });
 
   it("disables the button while a request is in flight and leaves the form and document unchanged", async () => {
@@ -1517,6 +1520,293 @@ describe("AI requirements analysis", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", UI_TEXT.analysis.errors["invalid-response"]);
     expect(preview()).toBe(before);
     expect(screen.queryByText("not a finding")).toBeNull();
+  });
+
+  const instructedFinding = {
+    ...analysisFinding,
+    category: "contradiction" as const,
+    suggestedAction: "Clarify the upload limit.",
+  };
+
+  async function receiveAnalysis(finding: {
+    explanation: string;
+    question: string | null;
+    suggestedAction: string | null;
+  } = analysisFinding) {
+    const held = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    held.pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(held.pending[0].body),
+        result: { findings: [finding] },
+      }),
+    );
+    expect(await screen.findByText(finding.explanation)).toBeTruthy();
+    return held;
+  }
+
+  function previewFact(region: HTMLElement, label: string) {
+    const term = within(region).getByText(label);
+    return term.nextElementSibling?.textContent ?? "";
+  }
+
+  function beginStructured(choice: "Copy current text" | "Start with an empty list") {
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: choice }));
+  }
+
+  it("records a decision and an exact answer without requesting analysis or creating a requirement", async () => {
+    fillRequired("Users can upload a receipt.");
+    assemble();
+    const before = preview();
+    const { fetchMock } = await receiveAnalysis(instructedFinding);
+
+    expect(screen.getByRole("heading", { name: UI_TEXT.analysis.groups.clarification })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: UI_TEXT.analysis.groups.contradiction })).toBeNull();
+    expect(screen.getByText(UI_TEXT.analysis.suggestedAction(instructedFinding.suggestedAction))).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.referenceOnly)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.reviewSummary(1, 0, 0, 0))).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.markAddressed("F-001") }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.dismiss("F-001") }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.defer("F-001") }));
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.deferred))).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.reviewSummary(0, 1, 0, 0))).toBeTruthy();
+
+    const answer = field(UI_TEXT.analysis.answerLabel("F-001"));
+    fireEvent.change(answer, { target: { value: "  10 MB.\n" } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.saveAnswer("F-001") }));
+    expect(screen.getByText(UI_TEXT.analysis.answerSaved)).toBeTruthy();
+    expect(answer.value).toBe("  10 MB.\n");
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.markAddressed("F-001") }));
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("  10 MB.\n");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(preview()).toBe(before);
+    expect(before).not.toContain(instructedFinding.explanation);
+    expect(before).not.toContain("Clarify the upload limit.");
+    expect(before).not.toContain("  10 MB.\n");
+
+    const propose = screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") });
+    expect((propose as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(UI_TEXT.analysis.structuredRequired)).toBeTruthy();
+    fireEvent.click(propose);
+    expect(screen.queryByLabelText(UI_TEXT.analysis.proposedText("F-001"))).toBeNull();
+  });
+
+  it("keeps answers when analysis is stale and does not apply a change", async () => {
+    fillRequired();
+    beginStructured("Start with an empty list");
+    const { fetchMock } = await receiveAnalysis(instructedFinding);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    const draft = field(UI_TEXT.analysis.proposedText("F-001"));
+    expect(draft.value).toBe("");
+    fireEvent.change(draft, { target: { value: "Users can upload a receipt up to 10 MB." } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    expect(screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") })).toBeTruthy();
+
+    change("Project name", "Changed during review");
+    expect(screen.getByText(UI_TEXT.analysis.stale)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.staleBlocked)).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /stale|override/i })).toBeNull();
+    expect(field(UI_TEXT.analysis.proposedText("F-001")).value).toBe("Users can upload a receipt up to 10 MB.");
+    const previewChange = screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") });
+    const applyChange = screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") });
+    expect((previewChange as HTMLButtonElement).disabled).toBe(true);
+    expect((applyChange as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(applyChange);
+    expect(screen.queryByLabelText("FR-001 text")).toBeNull();
+
+    fireEvent.change(field(UI_TEXT.analysis.answerLabel("F-001")), { target: { value: "  10 MB.\n" } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.saveAnswer("F-001") }));
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("  10 MB.\n");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(field("Business requirements").value).toBe("Users can upload a receipt.");
+  });
+
+  it("asks before a new analysis discards review records and keeps both runs distinct", async () => {
+    fillRequired();
+    const { pending, fetchMock } = await receiveAnalysis();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.markAddressed("F-001") }));
+    fireEvent.change(field(UI_TEXT.analysis.answerLabel("F-001")), { target: { value: "  10 MB.\n" } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.saveAnswer("F-001") }));
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const rerun = screen.getByRole("region", { name: UI_TEXT.analysis.rerunHeading });
+    const rerunCancel = within(rerun).getByRole("button", { name: UI_TEXT.buttons.cancel });
+    expect(document.activeElement).toBe(rerunCancel);
+    fireEvent.keyDown(rerunCancel, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: UI_TEXT.analysis.rerunHeading })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.addressed))).toBeTruthy();
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("  10 MB.\n");
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.rerunContinue }));
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.addressed))).toBeTruthy();
+    const replacement = { ...analysisFinding, explanation: "The second run also uses F-001." };
+    pending[1].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[1].body),
+        result: { findings: [replacement] },
+      }),
+    );
+    expect(await screen.findByText(replacement.explanation)).toBeTruthy();
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.open))).toBeTruthy();
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("");
+  });
+
+  it("leaves a proposed requirement out of the document until it is confirmed in the editor", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    beginStructured("Start with an empty list");
+    await receiveAnalysis(instructedFinding);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    const draft = field(UI_TEXT.analysis.proposedText("F-001"));
+    expect(draft.value).toBe("");
+    fireEvent.change(draft, { target: { value: "Users can upload a receipt up to 10 MB." } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    const changePreview = screen.getByRole("region", { name: UI_TEXT.analysis.previewChange("F-001") });
+    expect(within(changePreview).getByText("Users can upload a receipt up to 10 MB.")).toBeTruthy();
+    expect(within(changePreview).getByText(UI_TEXT.analysis.proposedPreview("FR-001"))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") }));
+
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt up to 10 MB.");
+    expect(field("FR-001 status").value).toBe("proposed");
+    expect(screen.getByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeTruthy();
+    expect(field("Business requirements").value).toBe(businessRequirements);
+    assemble();
+    expect(screen.getByText("Add a confirmed functional requirement, or return to free-text requirements.")).toBeTruthy();
+    expect(preview()).toBe("");
+
+    change("FR-001 status", "confirmed");
+    assemble();
+    const documentText = preview();
+    expect(documentText).toContain("**FR-001.** Users can upload a receipt up to 10 MB.");
+    expect(documentText).not.toContain("(approved AI proposal)");
+    expect(documentText).not.toContain("Clarify the upload limit.");
+    expect(documentText).not.toContain(instructedFinding.explanation);
+    expect(field("Business requirements").value).toBe(businessRequirements);
+  });
+
+  it("does not replace confirmed text until the authoritative confirmation, and keeps the id and source", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    beginStructured("Copy current text");
+    await receiveAnalysis(instructedFinding);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    change(UI_TEXT.analysis.changeLabel("F-001"), "update-functional");
+    change(UI_TEXT.analysis.targetLabel("F-001"), "FR-001");
+    const draft = field(UI_TEXT.analysis.proposedText("F-001"));
+    expect(draft.value).toBe("");
+    fireEvent.change(draft, { target: { value: "Users can upload a receipt up to 10 MB." } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    const changePreview = screen.getByRole("region", { name: UI_TEXT.analysis.suggestedReplacement("FR-001") });
+    expect(previewFact(changePreview, UI_TEXT.analysis.previewId)).toBe("FR-001");
+    expect(previewFact(changePreview, UI_TEXT.analysis.previewSource)).toBe(UI_TEXT.analysis.sources.user);
+    expect(previewFact(changePreview, UI_TEXT.analysis.previewStatus)).toBe(UI_TEXT.requirementStatus.confirmed);
+    expect(previewFact(changePreview, UI_TEXT.analysis.previewCurrentText)).toBe(businessRequirements);
+    expect(previewFact(changePreview, UI_TEXT.analysis.previewProposedText)).toBe("Users can upload a receipt up to 10 MB.");
+    expect(within(changePreview).getByText(UI_TEXT.analysis.replacesAuthoritative("FR-001"))).toBeTruthy();
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") }));
+    const confirmation = screen.getByRole("region", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") });
+    expect(within(confirmation).getByText(UI_TEXT.analysis.authoritativeBody)).toBeTruthy();
+    expect(document.activeElement).toBe(within(confirmation).getByRole("button", { name: UI_TEXT.buttons.cancel }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") }));
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.authoritativeReplace("FR-001") }));
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt up to 10 MB.");
+    expect(field("FR-001 status").value).toBe("confirmed");
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    assemble();
+    const documentText = preview();
+    expect(documentText).toContain("**FR-001.** Users can upload a receipt up to 10 MB.");
+    expect(documentText).not.toContain("(approved AI proposal)");
+    expect(documentText).not.toContain("Clarify the upload limit.");
+    expect(field("Business requirements").value).toBe(businessRequirements);
+  });
+
+  it("does not write review answers into the configuration file", async () => {
+    fillRequired();
+    await receiveAnalysis();
+    fireEvent.change(field(UI_TEXT.analysis.answerLabel("F-001")), { target: { value: "  10 MB.\n" } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.saveAnswer("F-001") }));
+    let blob: Blob | undefined;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      blob = value as Blob;
+      return "blob:config";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    fireEvent.click(screen.getByRole("button", { name: "Export configuration" }));
+
+    const exported = await blob?.text();
+    expect(exported).toContain("Receipt Tracker");
+    expect(exported).not.toContain("  10 MB.\n");
+    expect(exported).not.toContain("What is the maximum file size?");
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("  10 MB.\n");
+  });
+
+  it("shows acceptance criterion preview details and requires a new preview after the requirements change", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    beginStructured("Copy current text");
+    await receiveAnalysis(instructedFinding);
+    const finding = screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }).closest("li");
+    expect(finding).toBeTruthy();
+    const review = within(finding as HTMLElement);
+
+    fireEvent.click(review.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    change(UI_TEXT.analysis.changeLabel("F-001"), "create-criterion");
+    change(UI_TEXT.analysis.scopeLabel("F-001"), "requirement");
+    fireEvent.click(review.getByRole("checkbox", { name: "FR-001" }));
+    const exact = "  The file is rejected.\n";
+    fireEvent.change(field(UI_TEXT.analysis.proposedText("F-001")), { target: { value: exact } });
+    fireEvent.click(review.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+
+    const region = screen.getByRole("region", { name: UI_TEXT.analysis.previewChange("F-001") });
+    expect(previewFact(region, UI_TEXT.analysis.previewId)).toBe("AC-001");
+    expect(previewFact(region, UI_TEXT.analysis.previewSource)).toBe(UI_TEXT.analysis.sources.user);
+    expect(previewFact(region, UI_TEXT.analysis.previewStatus)).toBe(UI_TEXT.requirementStatus.proposed);
+    expect(previewFact(region, UI_TEXT.analysis.previewScope)).toBe(UI_TEXT.criterionScope.requirement);
+    expect(previewFact(region, UI_TEXT.analysis.previewLinks)).toBe("FR-001");
+    expect(previewFact(region, UI_TEXT.analysis.previewProposedText)).toBe(exact);
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+
+    change("FR-001 text", "Users can upload a receipt today.");
+    expect(screen.queryByRole("region", { name: UI_TEXT.analysis.previewChange("F-001") })).toBeNull();
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", UI_TEXT.analysis.previewStale);
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") })).toBeNull();
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt today.");
+
+    change("FR-001 text", businessRequirements);
+    expect(screen.queryByText(UI_TEXT.analysis.stale)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    const again = screen.getByRole("region", { name: UI_TEXT.analysis.previewChange("F-001") });
+    expect(previewFact(again, UI_TEXT.analysis.previewId)).toBe("AC-001");
+    expect(previewFact(again, UI_TEXT.analysis.previewProposedText)).toBe(exact);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") }));
+    expect(field("AC-001 text").value).toBe(exact);
+    expect(field("AC-001 status").value).toBe("proposed");
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    expect(screen.queryByLabelText("AC-002 text")).toBeNull();
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
   });
 });
 

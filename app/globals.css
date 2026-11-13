@@ -163,13 +163,30 @@ button:disabled {
   padding: 0.75rem 1rem;
 }
 
-.confirm h3 {
+.confirm h3,
+.confirm h4 {
   font-size: 1rem;
   margin: 0 0 0.5rem;
 }
 
 .confirm p {
   margin: 0 0 0.75rem;
+}
+
+.change-preview {
+  margin: 0 0 0.75rem;
+}
+
+.change-preview dt {
+  font-weight: 600;
+}
+
+.change-preview dd {
+  margin: 0 0 0.5rem;
+}
+
+.exact-text {
+  white-space: pre-wrap;
 }
 
 :focus-visible {

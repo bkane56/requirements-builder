@@ -205,7 +205,10 @@ Use clear, imperative, testable language. Distinguish **user-provided requiremen
 - Results stay in the page. They are not stored in the configuration or the exported JSON. Editing the form marks them as not matching the current requirements. A late or out-of-order response does not replace a newer analysis.
 - On timeout, a disabled or missing key, provider failure, an invalid response, or the local rate limit, deterministic assembly, editing, copy, and export remain usable.
 - An enabled endpoint is not authenticated. Do not expose it on the public internet. The in-memory limit of 10 requests per 10 minutes is only for local or private development. It is not sufficient protection for a public deployment, and this stage does not add an authentication system.
-- The current builder does not apply a finding to the requirements or the document.
+- The user can record a review decision and a clarification answer without changing a requirement. The answer is kept exactly for the current page session, with the analysis run and finding it belongs to. It is not sent to a model in this stage and it is not written into the configuration.
+- The user can apply one explicit requirement change from a matching analysis while structured requirements are on. The suggested action is reference material. The user writes the requirement text. A new item has source user and status proposed. A proposed item can be updated after a preview. A confirmed item keeps its text until a separate confirmation says the authoritative requirement will change. The identifier and source stay the same.
+- When the analysis no longer matches the current requirements, findings and answers remain visible and no change can be applied until the user runs analysis again.
+- Confirming a requirement for the document remains the structured editor status control. Applying a change does not confirm it.
 
 ### 8.2 AI analysis looks for
 
