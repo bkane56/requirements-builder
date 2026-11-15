@@ -104,12 +104,16 @@ export function RequirementsAnalysis({
   resetGeneration,
   recoveredAnalysis,
   onAnalysisChange,
+  recoveredWriting,
+  onWritingChange,
   onApplyPrepared,
 }: {
   config: ProjectConfig;
   resetGeneration: number;
   recoveredAnalysis: RecoveredAnalysis;
   onAnalysisChange: (analysis: RecoveredAnalysis, generation: number) => void;
+  recoveredWriting: DraftRecovery["writing"];
+  onWritingChange: (writing: DraftRecovery["writing"], generation: number) => void;
   onApplyPrepared: (draft: RequirementDraft, prepared: PreparedRequirementChange) => void;
 }) {
   const content = requirementsOf(config);
@@ -137,11 +141,13 @@ export function RequirementsAnalysis({
   const [privacyIntent, setPrivacyIntent] = useState<"analysis" | "writing">("analysis");
   const writingContinueRef = useRef<(() => void) | null>(null);
   const [resetSeen, setResetSeen] = useState(resetGeneration);
+  const [restoredGeneration, setRestoredGeneration] = useState(0);
   const resetSeenRef = useRef(resetGeneration);
   const allowPublish = useRef(false);
   const clearingReset = resetSeen !== 0 && resetSeen !== resetGeneration;
   if (resetSeen !== resetGeneration) {
     setResetSeen(resetGeneration);
+    setRestoredGeneration(resetGeneration);
     if (clearingReset) {
       setInFlight(false);
       setConfirming(false);
@@ -198,7 +204,15 @@ export function RequirementsAnalysis({
     }
     allowPublish.current = true;
   }, [resetGeneration, recoveredAnalysis]);
-  if (resetSeen === resetGeneration && resetSeen !== 0 && stored === null && session === null && recoveredAnalysis) {
+  if (
+    restoredGeneration !== resetGeneration &&
+    resetSeen === resetGeneration &&
+    resetSeen !== 0 &&
+    stored === null &&
+    session === null &&
+    recoveredAnalysis
+  ) {
+    setRestoredGeneration(resetGeneration);
     setStored({
       requestId: recoveredAnalysis.requestId,
       fingerprint: recoveredAnalysis.fingerprint,
@@ -498,6 +512,8 @@ export function RequirementsAnalysis({
     <RequirementsWriter
       config={config}
       resetGeneration={resetGeneration}
+      recoveredWriting={recoveredWriting}
+      onWritingChange={onWritingChange}
       clarifications={clarifications}
       privacyAcknowledged={acknowledged}
       interactionBlocked={inFlight || confirming || confirmingRerun}

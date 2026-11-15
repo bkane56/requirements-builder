@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder, { commitPreparedRequirementChange, recoveryStatusText } from "../components/requirements-builder";
+import { RequirementsAnalysis } from "../components/requirements-analysis";
 import { RequirementsWriter } from "../components/requirements-writer";
 import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
 import { readAnalysisResult } from "../lib/ai/analysis-schema";
@@ -2821,6 +2822,48 @@ describe("analysis review recovery", () => {
     expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("does not put a cleared analysis back before the parent stores the clear", () => {
+    cleanup();
+    const result = readAnalysisResult({ findings: [analysisFinding] });
+    const review = parseReviewSession({
+      requestId: 4,
+      fingerprint: "run-fingerprint",
+      records: { "4:F-001": { decision: "deferred" } },
+    });
+    if (!result || !review) throw new Error("Could not build an analysis session.");
+    const recovered = {
+      requestId: 4,
+      fingerprint: "run-fingerprint",
+      result,
+      session: review,
+      privacyAcknowledged: true,
+    };
+    const published: Array<typeof recovered | null> = [];
+    function panel(generation: number, analysis: typeof recovered | null) {
+      return (
+        <RequirementsAnalysis
+          config={defaultConfig}
+          resetGeneration={generation}
+          recoveredAnalysis={analysis}
+          onAnalysisChange={(next) => {
+            published.push(next);
+          }}
+          recoveredWriting={null}
+          onWritingChange={() => undefined}
+          onApplyPrepared={() => undefined}
+        />
+      );
+    }
+
+    const view = render(<StrictMode>{panel(1, recovered)}</StrictMode>);
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    view.rerender(<StrictMode>{panel(2, recovered)}</StrictMode>);
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(published.at(-1)).toBeNull();
+    view.rerender(<StrictMode>{panel(2, null)}</StrictMode>);
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+  });
 });
 
 describe("writing session recovery", () => {
@@ -3206,10 +3249,10 @@ describe("writing session recovery", () => {
       );
     }
 
-    const view = render(writer(1, session));
+    const view = render(<StrictMode>{writer(1, session)}</StrictMode>);
     expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe("A person has a role.");
 
-    view.rerender(writer(2, session));
+    view.rerender(<StrictMode>{writer(2, session)}</StrictMode>);
     expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
     expect(published.at(-1)).toBeNull();
 
@@ -3260,7 +3303,11 @@ describe("writing session recovery", () => {
       { analysis: true },
     );
     const { pending } = holdAnalysisFetch();
-    render(<RequirementsBuilder templates={templates} />);
+    render(
+      <StrictMode>
+        <RequirementsBuilder templates={templates} />
+      </StrictMode>,
+    );
     expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe(previousText);
 
     const suggestionValue = () => (document.getElementById("writing-text-W-001") as HTMLTextAreaElement | null)?.value ?? "";
