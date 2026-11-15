@@ -6,7 +6,8 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder, { commitPreparedRequirementChange, recoveryStatusText } from "../components/requirements-builder";
 import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
-import { prepareRequirementChange } from "../lib/ai/review";
+import { readAnalysisResult } from "../lib/ai/analysis-schema";
+import { parseReviewSession, prepareRequirementChange } from "../lib/ai/review";
 import { buildWritingInput, writingFingerprint, writingSourceFingerprint } from "../lib/ai/writing-input";
 import { assembleRequirements } from "../lib/assemble-requirements";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
@@ -16,6 +17,7 @@ import { DRAFT_RECOVERY_STORAGE_KEY, saveDraftRecovery } from "../lib/draft-reco
 import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
 import {
+  addFunctionalRequirement,
   beginStructuredRequirements,
   defaultRequirementsContent,
   requirementsOf,
@@ -2482,6 +2484,340 @@ describe("same-tab draft recovery", () => {
     } finally {
       if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
     }
+  });
+});
+
+describe("analysis review recovery", () => {
+  const answer = "  10 MB.\n";
+  const secondFinding = {
+    ...analysisFinding,
+    id: "F-002",
+    explanation: "The retention period is not stated.",
+    question: "How long is a receipt kept?",
+    suggestedAction: null,
+  };
+
+  function seedAnalysis(options?: {
+    requestId?: number;
+    fingerprint?: string;
+    privacy?: boolean;
+    records?: Record<string, unknown>;
+    findings?: unknown[];
+    markdown?: string;
+    requirementsContent?: ReturnType<typeof defaultRequirementsContent>;
+  }) {
+    const config = normalizeSelections({
+      ...defaultConfig,
+      projectName: "Receipt Tracker",
+      businessRequirements: "Users can upload a receipt.",
+      ...(options?.requirementsContent ? { requirementsContent: options.requirementsContent } : {}),
+    });
+    const currentFingerprint = analysisFingerprint(buildAnalysisInput(config));
+    const requestId = options?.requestId ?? 4;
+    const fingerprint = options?.fingerprint ?? currentFingerprint;
+    const result = readAnalysisResult({ findings: options?.findings ?? [analysisFinding] });
+    const session = parseReviewSession({ requestId, fingerprint, records: options?.records ?? {} });
+    if (!result || !session) throw new Error("Could not seed an analysis session.");
+    expect(
+      saveDraftRecovery(sessionStorage, {
+        version: 1,
+        config,
+        output: { markdown: options?.markdown ?? "Saved note\n", assembled: null },
+        analysis: {
+          requestId,
+          fingerprint,
+          result,
+          session,
+          privacyAcknowledged: options?.privacy ?? true,
+        },
+        writing: null,
+      }),
+    ).toEqual({ status: "saved" });
+    return { fingerprint, requestId };
+  }
+
+  it("restores findings, exact answers, decisions, privacy, and checked fingerprints", async () => {
+    fillRequired();
+    const { pending, fetchMock } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding, secondFinding] },
+      }),
+    );
+    expect(await screen.findByText(analysisFinding.explanation)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.defer("F-002") }));
+    fireEvent.change(field(UI_TEXT.analysis.answerLabel("F-001")), { target: { value: answer } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.saveAnswer("F-001") }));
+    flushDraft();
+    const storedFingerprint = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}").analysis?.fingerprint as string;
+
+    vi.stubGlobal("fetch", vi.fn());
+    reloadBuilder();
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(screen.getByText(secondFinding.explanation)).toBeTruthy();
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe(answer);
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-002", UI_TEXT.analysis.decisions.deferred))).toBeTruthy();
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.useAnswer })).toBeNull();
+    expect(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    change("Project name", "Changed after restore");
+    expect(field("Project name").value).toBe("Changed after restore");
+    expect(screen.getByText(UI_TEXT.analysis.stale)).toBeTruthy();
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe(answer);
+    expect(screen.getByRole("button", { name: UI_TEXT.analysis.useAnswer })).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }) as HTMLButtonElement).disabled).toBe(true);
+    flushDraft();
+    const saved = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as {
+      config: { projectName: string };
+      analysis: { fingerprint: string; session: { records: Record<string, { answer?: string; answerCheckedFingerprint?: string }> } };
+    };
+    expect(saved.config.projectName).toBe("Changed after restore");
+    expect(saved.analysis.fingerprint).toBe(storedFingerprint);
+    const record = Object.values(saved.analysis.session.records).find((item) => item.answer !== undefined);
+    expect(record?.answer).toBe(answer);
+    expect(record?.answerCheckedFingerprint).toBe(storedFingerprint);
+    expect(saved.analysis.fingerprint).not.toBe(analysisFingerprint(buildAnalysisInput(saved.config as ProjectConfig)));
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps an applied finding from being applied again and leaves another finding unresolved", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startEmptyStructured }));
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding, secondFinding] },
+      }),
+    );
+    expect(await screen.findByText(secondFinding.explanation)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    fireEvent.change(field(UI_TEXT.analysis.proposedText("F-001")), { target: { value: "Users can upload a receipt up to 10 MB." } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.previewChange("F-001") }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("F-001") }));
+    expect(screen.getByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeTruthy();
+
+    vi.stubGlobal("fetch", vi.fn());
+    reloadBuilder();
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt up to 10 MB.");
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    expect(screen.getByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.stale)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-002", UI_TEXT.analysis.decisions.open))).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-002") }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    expect(screen.queryByLabelText(UI_TEXT.analysis.proposedText("F-001"))).toBeNull();
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps an applied finding blocked when the restored analysis still matches the requirements", () => {
+    cleanup();
+    const requirementsContent = addFunctionalRequirement(
+      beginStructuredRequirements(defaultRequirementsContent(), "empty", "", ""),
+      "Users can upload a receipt up to 10 MB.",
+      { status: "proposed" },
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    seedAnalysis({
+      requirementsContent,
+      findings: [analysisFinding, secondFinding],
+      records: {
+        "4:F-001": { decision: "addressed", applied: { kind: "functional", id: "FR-001" } },
+        "4:F-002": { decision: "deferred" },
+      },
+    });
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(UI_TEXT.analysis.stale)).toBeNull();
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt up to 10 MB.");
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    expect(screen.getByText(UI_TEXT.analysis.appliedNote("FR-001"))).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.addressed))).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-002", UI_TEXT.analysis.decisions.deferred))).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-002") }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }));
+    expect(screen.queryByLabelText(UI_TEXT.analysis.proposedText("F-001"))).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-002") }));
+    expect(screen.getByLabelText(UI_TEXT.analysis.proposedText("F-002"))).toBeTruthy();
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not request analysis while restoring a stale session, and blocks applying it", () => {
+    cleanup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    seedAnalysis({ fingerprint: "stale-fingerprint" });
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(preview()).toBe("Saved note\n");
+    expect(screen.getByText(UI_TEXT.analysis.stale)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.staleBlocked)).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.analysis.proposeChange("F-001") }) as HTMLButtonElement).disabled).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("drops a corrupt analysis slice and keeps the configuration and Markdown", () => {
+    cleanup();
+    seedAnalysis();
+    const stored = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as { analysis: unknown };
+    stored.analysis = { requestId: 4, fingerprint: "bad", result: { findings: "nope" }, session: {}, privacyAcknowledged: true };
+    sessionStorage.setItem(DRAFT_RECOVERY_STORAGE_KEY, JSON.stringify(stored));
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(preview()).toBe("Saved note\n");
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(screen.getByRole("button", { name: UI_TEXT.analysis.analyze })).toBeTruthy();
+  });
+
+  it("gives the next analysis a later request id and does not call AI during Strict Mode restore", async () => {
+    cleanup();
+    const seeded = seedAnalysis({
+      requestId: 4,
+      records: { "4:F-001": { decision: "deferred" } },
+    });
+    const realStorage = window.sessionStorage;
+    let writes = 0;
+    const counting = new Proxy(realStorage, {
+      get(target, prop, receiver) {
+        if (prop === "setItem") {
+          return (key: string, value: string) => {
+            if (key === DRAFT_RECOVERY_STORAGE_KEY) writes += 1;
+            return target.setItem(key, value);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", { configurable: true, get: () => counting });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(
+        <StrictMode>
+          <RequirementsBuilder templates={templates} />
+        </StrictMode>,
+      );
+      expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+      expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.deferred))).toBeTruthy();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(writes).toBeLessThanOrEqual(4);
+      expect(counting.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain(analysisFinding.explanation);
+
+      const held = holdAnalysisFetch();
+      fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+      expect(screen.queryByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.rerunContinue }));
+      held.pending[0].resolve(
+        analysisResponse({
+          ok: true,
+          fingerprint: fingerprintOf(held.pending[0].body),
+          result: { findings: [{ ...analysisFinding, explanation: "The second analysis names a deadline." }] },
+        }),
+      );
+      expect(await screen.findByText("The second analysis names a deadline.")).toBeTruthy();
+      await act(async () => {});
+      flushDraft();
+      const saved = JSON.parse(counting.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as { analysis: { requestId: number } };
+      expect(saved.analysis.requestId).toBe(seeded.requestId + 1);
+    } finally {
+      if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps privacy acknowledgment without sending a request on restore", () => {
+    cleanup();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? init.body : "";
+      return Promise.resolve(
+        analysisResponse({
+          ok: true,
+          fingerprint: fingerprintOf(body),
+          result: { findings: [{ ...analysisFinding, explanation: "A later analysis." }] },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    seedAnalysis({ privacy: true, records: {} });
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+    expect(screen.queryByRole("region", { name: UI_TEXT.analysis.confirmHeading })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("ignores a late analysis response after Start new project and preserves the download count", async () => {
+    sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, "4");
+    fillRequired();
+    const { pending, fetchMock } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding] },
+      }),
+    );
+    expect(await screen.findByText(analysisFinding.explanation)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.defer("F-001") }));
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.keyDown(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }), { key: "Escape" });
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.analysis.decisionLabel("F-001", UI_TEXT.analysis.decisions.deferred))).toBeTruthy();
+    expect(field("Project name").value).toBe("Receipt Tracker");
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyzeAgain }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.rerunContinue }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.clearProject }));
+    pending[1].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[1].body),
+        result: { findings: [{ ...analysisFinding, explanation: "This late analysis must not return." }] },
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(screen.queryByText("This late analysis must not return.")).toBeNull();
+    expect(field("Project name").value).toBe("");
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

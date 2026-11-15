@@ -25,6 +25,7 @@ import {
   type ReviewSession,
 } from "@/lib/ai/review";
 import type { ProjectConfig } from "@/lib/config";
+import type { DraftRecovery } from "@/lib/draft-recovery";
 import { requirementsOf, type CriterionScope, type RequirementsContent } from "@/lib/requirements-content";
 import { UI_TEXT } from "@/lib/ui-text";
 import { RequirementsWriter } from "./requirements-writer";
@@ -81,13 +82,34 @@ function useInlineConfirmation(active: boolean, cancelRef: RefObject<HTMLButtonE
   };
 }
 
+type RecoveredAnalysis = DraftRecovery["analysis"];
+
+function analysisSlice(
+  stored: StoredAnalysis | null,
+  session: ReviewSession | null,
+  privacyAcknowledged: boolean,
+): RecoveredAnalysis {
+  if (!stored || !session) return null;
+  return {
+    requestId: stored.requestId,
+    fingerprint: stored.fingerprint,
+    result: stored.result,
+    session,
+    privacyAcknowledged,
+  };
+}
+
 export function RequirementsAnalysis({
   config,
   resetGeneration,
+  recoveredAnalysis,
+  onAnalysisChange,
   onApplyPrepared,
 }: {
   config: ProjectConfig;
   resetGeneration: number;
+  recoveredAnalysis: RecoveredAnalysis;
+  onAnalysisChange: (analysis: RecoveredAnalysis, generation: number) => void;
   onApplyPrepared: (draft: RequirementDraft, prepared: PreparedRequirementChange) => void;
 }) {
   const content = requirementsOf(config);
@@ -116,6 +138,7 @@ export function RequirementsAnalysis({
   const writingContinueRef = useRef<(() => void) | null>(null);
   const [resetSeen, setResetSeen] = useState(resetGeneration);
   const resetSeenRef = useRef(resetGeneration);
+  const allowPublish = useRef(false);
   const clearingReset = resetSeen !== 0 && resetSeen !== resetGeneration;
   if (resetSeen !== resetGeneration) {
     setResetSeen(resetGeneration);
@@ -131,17 +154,63 @@ export function RequirementsAnalysis({
       setPendingApply(null);
       setRejectedFindingId(null);
       setPrivacyIntent("analysis");
+    } else if (recoveredAnalysis) {
+      setStored({
+        requestId: recoveredAnalysis.requestId,
+        fingerprint: recoveredAnalysis.fingerprint,
+        result: recoveredAnalysis.result,
+      });
+      setSession(recoveredAnalysis.session);
+      setAcknowledged(recoveredAnalysis.privacyAcknowledged);
+      setInFlight(false);
+      setConfirming(false);
+      setConfirmingRerun(false);
+      setError(null);
+      setDraftFindingId(null);
+      setPendingApply(null);
+      setRejectedFindingId(null);
+      setPrivacyIntent("analysis");
     }
   }
   useLayoutEffect(() => {
-    if (resetSeenRef.current === resetGeneration) return;
+    if (resetSeenRef.current === resetGeneration) {
+      // A restored result can arrive after the generation is adopted. Never move the ids backward.
+      const requestId = recoveredAnalysis?.requestId ?? 0;
+      if (requestId > startedRef.current) {
+        startedRef.current = requestId;
+        appliedRef.current = requestId;
+      }
+      // Generation 0 is the unresolved first render. Publishing then would replace a saved session.
+      if (resetGeneration !== 0) allowPublish.current = true;
+      return;
+    }
     const previous = resetSeenRef.current;
     resetSeenRef.current = resetGeneration;
-    if (previous === 0) return;
-    startedRef.current += 1;
-    appliedRef.current = startedRef.current;
-    writingContinueRef.current = null;
-  }, [resetGeneration]);
+    if (previous === 0) {
+      // The restored request already completed. The next real click must use a later id.
+      const requestId = recoveredAnalysis?.requestId ?? 0;
+      startedRef.current = requestId;
+      appliedRef.current = requestId;
+    } else {
+      startedRef.current += 1;
+      appliedRef.current = startedRef.current;
+      writingContinueRef.current = null;
+    }
+    allowPublish.current = true;
+  }, [resetGeneration, recoveredAnalysis]);
+  if (resetSeen === resetGeneration && resetSeen !== 0 && stored === null && session === null && recoveredAnalysis) {
+    setStored({
+      requestId: recoveredAnalysis.requestId,
+      fingerprint: recoveredAnalysis.fingerprint,
+      result: recoveredAnalysis.result,
+    });
+    setSession(recoveredAnalysis.session);
+    setAcknowledged(recoveredAnalysis.privacyAcknowledged);
+  }
+  useEffect(() => {
+    if (!allowPublish.current) return;
+    onAnalysisChange(analysisSlice(stored, session, acknowledged), resetGeneration);
+  }, [stored, session, acknowledged, resetGeneration, onAnalysisChange]);
 
   const stale = stored !== null && stored.fingerprint !== fingerprint;
   const structured = content.mode === "structured";
@@ -161,6 +230,7 @@ export function RequirementsAnalysis({
   }
 
   function requestApply(findingId: string, draft: RequirementDraft, prepared: PreparedRequirementChange) {
+    if (session && reviewRecord(session, findingId).applied) return false;
     const next = applyRequirementChange(content, draft, prepared);
     if (!next) return false;
     setRejectedFindingId(null);
@@ -195,6 +265,7 @@ export function RequirementsAnalysis({
 
   async function send() {
     const requestId = startedRef.current + 1;
+    const generationAtSend = resetGeneration;
     startedRef.current = requestId;
     setConfirming(false);
     setConfirmingRerun(false);
@@ -207,15 +278,16 @@ export function RequirementsAnalysis({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ config }),
       });
-      applyPayload(requestId, await response.json());
+      applyPayload(requestId, generationAtSend, await response.json());
     } catch {
-      if (isLatestRequest(requestId)) setError("provider");
+      if (generationAtSend === resetSeenRef.current && isLatestRequest(requestId)) setError("provider");
     } finally {
-      if (requestId === startedRef.current) setInFlight(false);
+      if (generationAtSend === resetSeenRef.current && requestId === startedRef.current) setInFlight(false);
     }
   }
 
-  function applyPayload(requestId: number, payload: unknown) {
+  function applyPayload(requestId: number, generationAtSend: number, payload: unknown) {
+    if (generationAtSend !== resetSeenRef.current) return;
     if (!isLatestRequest(requestId)) return;
     const parsed = readPayload(payload);
     if (!parsed) {
@@ -408,7 +480,7 @@ export function RequirementsAnalysis({
                             if (next) setSession(next);
                           }}
                           onToggleDraft={() => {
-                            if (stale || !structured) return;
+                            if (stale || !structured || reviewRecord(session, finding.id).applied) return;
                             setDraftFindingId(draftFindingId === finding.id ? null : finding.id);
                           }}
                           onApply={(draft, prepared) => requestApply(finding.id, draft, prepared)}
@@ -529,7 +601,7 @@ function FindingReview({
           )}
         </div>
       )}
-      <button type="button" onClick={onToggleDraft} disabled={stale || !structured}>
+      <button type="button" onClick={onToggleDraft} disabled={stale || !structured || record.applied !== undefined}>
         {UI_TEXT.analysis.proposeChange(finding.id)}
       </button>
       {!structured && <p className="hint">{UI_TEXT.analysis.structuredRequired}</p>}

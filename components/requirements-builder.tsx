@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
 import { evaluateAdvisories } from "@/lib/advisories";
 import {
   applyRequirementChange,
@@ -182,14 +182,25 @@ function unresolvedBrowserStorage(): undefined {
   return undefined;
 }
 
-function toRecoveryDraft(config: ProjectConfig, markdown: string, assembled: AssembledSnapshot | null): DraftRecovery {
+type RecoveredAnalysis = DraftRecovery["analysis"];
+
+function toRecoveryDraft(
+  config: ProjectConfig,
+  markdown: string,
+  assembled: AssembledSnapshot | null,
+  analysis: RecoveredAnalysis,
+): DraftRecovery {
   return {
     version: DRAFT_RECOVERY_VERSION,
     config,
     output: { markdown, assembled },
-    analysis: null,
+    analysis,
     writing: null,
   };
+}
+
+function sameAnalysis(left: RecoveredAnalysis, right: RecoveredAnalysis): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export function recoveryStatusText(result: SaveDraftResult | null): string | null {
@@ -664,6 +675,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const storage = useSyncExternalStore(subscribeBrowserStorage, readBrowserStorage, unresolvedBrowserStorage);
   const { ready, generation, draft: recoveredDraft, lastSave, schedule, reset, acceptsGeneration } = useDraftRecovery(storage);
   const [appliedGeneration, setAppliedGeneration] = useState(0);
+  const [analysis, setAnalysis] = useState<RecoveredAnalysis>(null);
   const [startNewConfirming, setStartNewConfirming] = useState(false);
   const [resetStorageFailed, setResetStorageFailed] = useState(false);
   const integrationAdvisory = evaluateAdvisories(config).find((advisory) => advisory.field === "integrationTests");
@@ -904,6 +916,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
       setCopyStatus("idle");
       setConfigFileNotice(null);
       setStartNewConfirming(false);
+      setAnalysis(recoveredDraft.analysis);
     } else if (appliedGeneration !== 0) {
       setConfig(defaultConfig);
       setMarkdown("");
@@ -913,6 +926,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
       setPending(null);
       setCopyStatus("idle");
       setConfigFileNotice(null);
+      setAnalysis(null);
     }
   }
   const persistenceReady = ready && appliedGeneration === generation;
@@ -921,8 +935,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
 
   useEffect(() => {
     if (!persistenceReady) return;
-    schedule(toRecoveryDraft(config, markdown, assembled), generation);
-  }, [persistenceReady, schedule, config, markdown, assembled, generation]);
+    schedule(toRecoveryDraft(config, markdown, assembled, analysis), generation);
+  }, [persistenceReady, schedule, config, markdown, assembled, analysis, generation]);
 
   useEffect(() => {
     if (!startNewConfirming) return;
@@ -933,6 +947,14 @@ export default function RequirementsBuilder({ templates }: { templates: Template
       if (target?.isConnected) target.focus();
     };
   }, [startNewConfirming]);
+
+  const reportAnalysis = useCallback(
+    (next: RecoveredAnalysis, reportedGeneration: number) => {
+      if (!acceptsGeneration(reportedGeneration)) return;
+      setAnalysis((current) => (sameAnalysis(current, next) ? current : next));
+    },
+    [acceptsGeneration],
+  );
 
   function openStartNew(trigger: HTMLElement) {
     if (!persistenceReady) return;
@@ -1280,6 +1302,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         <RequirementsAnalysis
           config={config}
           resetGeneration={generation}
+          recoveredAnalysis={analysis}
+          onAnalysisChange={reportAnalysis}
           onApplyPrepared={(draft: RequirementDraft, prepared: PreparedRequirementChange) => {
             if (!acceptsGeneration(generation)) return;
             setConfig((current) => commitPreparedRequirementChange(current, draft, prepared));
