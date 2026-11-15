@@ -52,6 +52,7 @@ export type RecoveryView = {
   ready: boolean;
   generation: number;
   draft: DraftRecovery | null;
+  lastSave: SaveDraftResult | null;
 };
 
 export type DraftPersistence = {
@@ -66,7 +67,7 @@ export type DraftPersistence = {
   getServerSnapshot(): RecoveryView;
 };
 
-const SERVER_VIEW: RecoveryView = { ready: false, generation: 0, draft: null };
+const SERVER_VIEW: RecoveryView = { ready: false, generation: 0, draft: null, lastSave: null };
 const ENVELOPE_KEYS = ["version", "config", "output", "analysis", "writing"] as const;
 
 const browserTimer: DraftTimer = {
@@ -175,6 +176,7 @@ export function createDraftPersistence(options?: { delayMs?: number; timer?: Dra
     const result = saveDraftRecovery(storage, pendingDraft);
     // Quota and size failures stay pending. An invalid document cannot succeed on a later flush.
     if (result.status !== "unavailable" || readDraftRecovery(pendingDraft) === null) pendingDraft = null;
+    publish({ ...view, lastSave: result });
     return result;
   }
 
@@ -190,6 +192,7 @@ export function createDraftPersistence(options?: { delayMs?: number; timer?: Dra
         ready: true,
         generation,
         draft: loaded.status === "restored" ? loaded.draft : null,
+        lastSave: null,
       });
       return loaded;
     },
@@ -197,7 +200,7 @@ export function createDraftPersistence(options?: { delayMs?: number; timer?: Dra
       if (!ready || requestedGeneration !== generation) return;
       pendingDraft = draft;
       pendingGeneration = requestedGeneration;
-      publish({ ready: true, generation, draft });
+      publish({ ready: true, generation, draft, lastSave: view.lastSave });
       writeToken += 1;
       const token = writeToken;
       cancelTimer();
@@ -218,7 +221,7 @@ export function createDraftPersistence(options?: { delayMs?: number; timer?: Dra
       pendingGeneration = 0;
       generation += 1;
       const cleared = storage ? clearDraftRecovery(storage) : "unavailable";
-      publish({ ready: true, generation, draft: null });
+      publish({ ready: true, generation, draft: null, lastSave: null });
       return { generation, storage: cleared === "cleared" ? "cleared" : "unavailable" };
     },
     acceptsGeneration(requestedGeneration) {

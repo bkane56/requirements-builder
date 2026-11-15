@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { analysisFingerprint, buildAnalysisInput } from "@/lib/ai/analysis-input";
 import {
   applyRequirementChange,
@@ -48,6 +48,7 @@ type PendingSuggestionApply = {
 
 export function RequirementsWriter({
   config,
+  resetGeneration,
   clarifications,
   privacyAcknowledged,
   interactionBlocked,
@@ -55,6 +56,7 @@ export function RequirementsWriter({
   onApplyPrepared,
 }: {
   config: ProjectConfig;
+  resetGeneration: number;
   clarifications: readonly Stage6Clarification[];
   privacyAcknowledged: boolean;
   interactionBlocked: boolean;
@@ -74,13 +76,37 @@ export function RequirementsWriter({
   const appliedRef = useRef(0);
   const replacementCancelRef = useRef<HTMLButtonElement>(null);
   const replacementConfirmation = useInlineConfirmation(confirmingId !== null, replacementCancelRef);
+  const [resetSeen, setResetSeen] = useState(resetGeneration);
+  const resetSeenRef = useRef(resetGeneration);
+  const clearingReset = resetSeen !== 0 && resetSeen !== resetGeneration;
+  if (resetSeen !== resetGeneration) {
+    setResetSeen(resetGeneration);
+    if (clearingReset) {
+      setDraft(null);
+      setInFlight(false);
+      setError(null);
+      setMessage(null);
+      setTransitionNotice(null);
+      setPreparedSuggestion(null);
+      setPendingApply(null);
+      setConfirmingId(null);
+    }
+  }
+  useLayoutEffect(() => {
+    if (resetSeenRef.current === resetGeneration) return;
+    const previous = resetSeenRef.current;
+    resetSeenRef.current = resetGeneration;
+    if (previous === 0) return;
+    startedRef.current += 1;
+    appliedRef.current = startedRef.current;
+  }, [resetGeneration]);
   const sourceCurrent =
     draft !== null &&
     includedAnswersMatch(draft.includedClarifications, clarifications) &&
     currentSourceFingerprint(config, draft.origin, draft.includedClarifications) === draft.sourceFingerprint;
   const requirementsFingerprint = requirementsChangeFingerprint(content);
 
-  if (pendingApply && draft) {
+  if (!clearingReset && pendingApply && draft) {
     if (requirementsFingerprint === pendingApply.expectedFingerprint) {
       const suggestionId = pendingApply.suggestionId;
       const functionalId = pendingApply.functionalId;
@@ -108,6 +134,7 @@ export function RequirementsWriter({
       setMessage(UI_TEXT.analysis.applyRejected);
     }
   } else if (
+    !clearingReset &&
     preparedSuggestion &&
     preparedSuggestion.prepared.fingerprint !== requirementsFingerprint &&
     requirementsFingerprint !== pendingApply?.expectedFingerprint

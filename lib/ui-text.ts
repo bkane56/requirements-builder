@@ -65,6 +65,8 @@ export const UI_TEXT = {
     copyCurrentText: "Copy current text",
     startEmptyStructured: "Start with an empty list",
     cancel: "Cancel",
+    startNewProject: "Start new project",
+    clearProject: "Clear project",
     addFunctionalRequirement: "Add functional requirement",
     addProjectCriterion: "Add project-wide criterion",
     addRequirementCriterion: "Add requirement criterion",
@@ -95,6 +97,15 @@ export const UI_TEXT = {
   notices: {
     stale: "The configuration has changed since this document was assembled.",
     edited: "This document includes manual edits.",
+  },
+  draftRecovery: {
+    startHeading: "Start a new project?",
+    startBody:
+      "This clears the configuration, the Markdown document, and the AI review and writing work on this page. The saved draft in this tab is removed. The download count is kept.",
+    resetFailed:
+      "The saved project could not be removed from this tab. Refresh may bring it back until a new draft is saved.",
+    unavailable: "The latest change could not be saved in this tab. A refresh may show an older copy.",
+    partial: "The latest change was only partly saved in this tab. A refresh may not include all of it.",
   },
   copy: {
     success: "Copied the current Markdown.",

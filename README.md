@@ -82,6 +82,8 @@ Reassemble replaces the document from the current form. If the document has manu
 
 The browser may show its generic leave prompt while the document has manual edits. That prompt is best-effort and does not save the document.
 
+The form and the Markdown document are also saved in this browser tab under `requirements-builder.draft`. A refresh restores the project name, requirements, technology choices, the current Markdown, and the last assembled snapshot. Refresh does not assemble again and does not send an AI request. Review decisions and writing drafts are not part of that saved draft yet. If the draft cannot be saved, the page says so. Start new project asks before it clears the form, the document, and the AI work on the page. Cancel, or Escape, leaves all of that in place. Confirming removes only the saved draft. The download count stays. If the saved draft cannot be removed, the page says that a refresh may bring the project back.
+
 ## Optional AI analysis
 
 Analyze requirements with AI reviews the current form. It does not run when you assemble a draft, and it does not need a document to exist. The first click in a page session asks before anything is sent. Cancel, or Escape, sends nothing. A later click in that page session sends the current form.
@@ -137,7 +139,7 @@ Package manager choices are Yarn, npm, and pnpm for JavaScript and TypeScript (d
 - Next.js and React + Vite can both be checked. Each keeps its own routing, client state, and server data choices. Forms and styling are not choices yet.
 - JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter. UI and backend selections are separate packages. There is no monorepo or workspace choice.
 - AI analysis and writing have no authentication. Do not enable them on a public server. The in-memory request limits are not public protection. The writing fingerprint check only detects a stale or mismatched answer. It does not identify the user.
-- Review decisions, clarification answers, and writing drafts stay in the current page session. Reloading the page drops them. They are not part of `PROJECT_CONFIGURATION.json`.
+- The form and Markdown document are restored in the same browser tab. Review decisions, clarification answers, and writing drafts stay in memory only. Reloading the page drops them. They are not part of `PROJECT_CONFIGURATION.json`.
 - A change from an analysis can be applied only in structured mode, only while that analysis still matches the current requirements, and only after you preview it. A new item from analysis starts as a proposed user requirement. A new item from writing starts as a proposed AI requirement. Confirming it for the document is a separate action in the structured requirements editor. A confirmed item does not change until you confirm that its authoritative text will change.
 - A host that only serves static files cannot answer `POST /api/ai-review` or `POST /api/ai-write`.
 - The server does not store the review session, so it cannot prove that a submitted answer is the text saved from the original analysis. It can only check that the submitted fingerprint matches the current requirements.

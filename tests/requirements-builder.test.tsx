@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
 import fs from "node:fs";
 import path from "node:path";
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import RequirementsBuilder, { commitPreparedRequirementChange } from "../components/requirements-builder";
+import RequirementsBuilder, { commitPreparedRequirementChange, recoveryStatusText } from "../components/requirements-builder";
 import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
 import { prepareRequirementChange } from "../lib/ai/review";
 import { buildWritingInput, writingFingerprint, writingSourceFingerprint } from "../lib/ai/writing-input";
 import { assembleRequirements } from "../lib/assemble-requirements";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { serializeConfig } from "../lib/config-file";
+import { DOWNLOAD_COUNT_STORAGE_KEY } from "../lib/download-filename";
+import { DRAFT_RECOVERY_STORAGE_KEY, saveDraftRecovery } from "../lib/draft-recovery";
 import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
 import {
@@ -2226,4 +2229,280 @@ describe("AI requirements analysis", () => {
     expect(document.activeElement).toBe(draft);
   });
 });
+
+function reloadBuilder() {
+  cleanup();
+  render(<RequirementsBuilder templates={templates} />);
+}
+
+function flushDraft() {
+  act(() => {
+    window.dispatchEvent(new Event("pagehide"));
+  });
+}
+
+describe("same-tab draft recovery", () => {
+  it("describes partial and failed saves without treating a complete save as incomplete", () => {
+    expect(recoveryStatusText(null)).toBeNull();
+    expect(recoveryStatusText({ status: "saved" })).toBeNull();
+    expect(recoveryStatusText({ status: "partial", omitted: ["output"] })).toBe(UI_TEXT.draftRecovery.partial);
+    expect(recoveryStatusText({ status: "unavailable" })).toBe(UI_TEXT.draftRecovery.unavailable);
+  });
+
+  it("restores free-text requirements, technology choices, and structured requirements after refresh", () => {
+    const businessRequirements = "  Show the people list.\nKeep the spacing.  ";
+    change("Project name", "People Directory");
+    change("Business requirements", businessRequirements);
+    change("Application type", "web-app");
+    fireEvent.click(field("Backend TypeScript"));
+    change("Backend TypeScript package manager", "npm");
+    fireEvent.click(field("React + Vite"));
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy current text" }));
+    change("FR-001 text", `${businessRequirements} Added.`);
+
+    reloadBuilder();
+
+    expect(field("Project name").value).toBe("People Directory");
+    expect(field("Business requirements").value).toBe(businessRequirements);
+    expect(field("Application type").value).toBe("web-app");
+    expect(field("Backend TypeScript").checked).toBe(true);
+    expect(field("Backend TypeScript package manager").value).toBe("npm");
+    expect(field("React + Vite").checked).toBe(true);
+    expect(field("FR-001 text").value).toBe(`${businessRequirements} Added.`);
+    expect(field("FR-001 status").value).toBe("confirmed");
+  });
+
+  it("restores edited and stale Markdown without assembling or calling AI", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fillRequired();
+    assemble();
+    const generated = preview();
+    const edited = `${generated}manual note\n`;
+    editDocument(edited);
+    change("Project name", "Receipt Tracker 2");
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+
+    reloadBuilder();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(field("Project name").value).toBe("Receipt Tracker 2");
+    expect(preview()).toBe(edited);
+    expect(preview()).not.toBe(generated);
+    expect(screen.getByRole("button", { name: "Reassemble" })).toBeTruthy();
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it("restores a seeded draft under Strict Mode without replacing it with the initial form", () => {
+    cleanup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, "6");
+    const config = normalizeSelections({
+      ...defaultConfig,
+      projectName: "Receipt Tracker",
+      businessRequirements: "Users can upload a receipt.",
+    });
+    const snapshot = normalizeSelections({ ...config, projectName: "Receipt Tracker snapshot" });
+    expect(
+      saveDraftRecovery(sessionStorage, {
+        version: 1,
+        config,
+        output: { markdown: "Saved note\n", assembled: { config: snapshot, markdown: "Generated draft\n" } },
+        analysis: null,
+        writing: null,
+      }),
+    ).toEqual({ status: "saved" });
+
+    render(
+      <StrictMode>
+        <RequirementsBuilder templates={templates} />
+      </StrictMode>,
+    );
+
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(preview()).toBe("Saved note\n");
+    expect(screen.getByText(STALE_NOTICE)).toBeTruthy();
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("Receipt Tracker");
+    expect(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("Saved note\\n");
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("6");
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the project unchanged when Start new project is cancelled or dismissed with Escape", async () => {
+    fillRequired();
+    assemble();
+    const edited = `${preview()}manual note\n`;
+    editDocument(edited);
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding] },
+      }),
+    );
+    expect(await screen.findByText(analysisFinding.explanation)).toBeTruthy();
+    sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, "4");
+    flushDraft();
+    const stored = sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    const confirmation = screen.getByRole("region", { name: UI_TEXT.draftRecovery.startHeading });
+    expect(document.activeElement).toBe(within(confirmation).getByRole("button", { name: UI_TEXT.buttons.cancel }));
+    fireEvent.click(within(confirmation).getByRole("button", { name: UI_TEXT.buttons.cancel }));
+
+    expect(screen.queryByRole("region", { name: UI_TEXT.draftRecovery.startHeading })).toBeNull();
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(preview()).toBe(edited);
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toBe(stored);
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.keyDown(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }), { key: "Escape" });
+    expect(screen.queryByRole("region", { name: UI_TEXT.draftRecovery.startHeading })).toBeNull();
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(preview()).toBe(edited);
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toBe(stored);
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
+  });
+
+  it("clears the project and child sessions, keeps the download count, and stays empty after refresh", async () => {
+    fillRequired();
+    const { pending, fetchMock } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.analyze }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.send }));
+    pending[0].resolve(
+      analysisResponse({
+        ok: true,
+        fingerprint: fingerprintOf(pending[0].body),
+        result: { findings: [analysisFinding] },
+      }),
+    );
+    expect(await screen.findByText(analysisFinding.explanation)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, "4");
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.clearProject }));
+
+    expect(field("Project name").value).toBe("");
+    expect(preview()).toBe("");
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(screen.getByRole("button", { name: UI_TEXT.analysis.analyze })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.analyzeAgain })).toBeNull();
+    expect(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    pending[1].resolve(
+      analysisResponse(
+        writingBody(pending[1].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "A person has a role.",
+            rationale: "The description names a person.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("A person has a role.")).toBeNull();
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(field("Project name").value).toBe("");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    reloadBuilder();
+    expect(field("Project name").value).toBe("");
+    expect(preview()).toBe("");
+    expect(screen.queryByText(analysisFinding.explanation)).toBeNull();
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
+  });
+
+  it("reports a failed draft deletion and brings the stored project back on refresh", () => {
+    change("Project name", "Receipt Tracker");
+    flushDraft();
+    sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, "8");
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    const blocking = storageWithDraftFailures(window.sessionStorage, { remove: true, write: true });
+    Object.defineProperty(window, "sessionStorage", { configurable: true, get: () => blocking });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+      fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.clearProject }));
+
+      expect(screen.getByRole("alert").textContent).toBe(UI_TEXT.draftRecovery.resetFailed);
+      expect(field("Project name").value).toBe("");
+      expect(blocking.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("Receipt Tracker");
+      expect(blocking.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("8");
+
+      reloadBuilder();
+      expect(field("Project name").value).toBe("Receipt Tracker");
+      expect(blocking.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("8");
+    } finally {
+      if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
+    }
+  });
+
+  it("shows one notice when saving the draft fails and stays quiet after a complete save", () => {
+    change("Project name", "First edit");
+    flushDraft();
+    expect(screen.queryByText(UI_TEXT.draftRecovery.unavailable)).toBeNull();
+    expect(screen.queryByText(UI_TEXT.draftRecovery.partial)).toBeNull();
+    expect(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("First edit");
+
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    const blocking = storageWithDraftFailures(window.sessionStorage, { remove: false, write: true });
+    Object.defineProperty(window, "sessionStorage", { configurable: true, get: () => blocking });
+    try {
+      change("Project name", "Second edit");
+      flushDraft();
+      change("Project name", "Third edit");
+      flushDraft();
+
+      expect(screen.getAllByText(UI_TEXT.draftRecovery.unavailable)).toHaveLength(1);
+      expect(blocking.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("First edit");
+      expect(blocking.getItem(DRAFT_RECOVERY_STORAGE_KEY)).not.toContain("Second edit");
+    } finally {
+      if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
+    }
+  });
+});
+
+function storageWithDraftFailures(storage: Storage, failures: { remove: boolean; write: boolean }): Storage {
+  return new Proxy(storage, {
+    get(target, prop, receiver) {
+      if (prop === "setItem") {
+        return (key: string, value: string) => {
+          if (failures.write && key === DRAFT_RECOVERY_STORAGE_KEY) throw new Error("blocked");
+          return target.setItem(key, value);
+        };
+      }
+      if (prop === "removeItem") {
+        return (key: string) => {
+          if (failures.remove && key === DRAFT_RECOVERY_STORAGE_KEY) throw new Error("blocked");
+          return target.removeItem(key);
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 

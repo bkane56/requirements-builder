@@ -205,6 +205,8 @@ Both buttons are disabled when `markdown.length === 0`. Both read the current te
 
 Starting the download does not mean the user finished saving the file. A name can still match a file saved in an earlier browser session. When storage is unavailable, numbering continues only until the page is loaded again.
 
+The same tab also keeps a draft at `requirements-builder.draft`. `RequirementsBuilder` is the only writer. It restores the configuration, Markdown, and assembled snapshot in the render that follows the storage read, and it does not call `assembleRequirements` or either AI route while doing that. Edited and stale notices are still derived from that restored state. Saves are debounced. A failed or partial save is shown once beside the configuration, not on every keystroke. Start new project uses the same inline confirmation as the other destructive actions. Cancel and Escape change nothing. Confirm calls the persistence reset, clears the form, document, and in-memory analysis and writing state, and ignores a later callback from the previous generation. Only a reset result of `storage: "cleared"` means the draft key was removed. A failed deletion leaves the key in place and shows an alert. The download key is not removed. Analysis and writing sessions are not written into the draft yet.
+
 [`tests/download-filename.test.ts`](../tests/download-filename.test.ts) covers the pure filename and parser. The copy and download tests in [`tests/requirements-builder.test.tsx`](../tests/requirements-builder.test.tsx) cover exact blob text, the first name, later names, a remount that keeps the stored count, a click that does not advance the count, and the memory fallback.
 
 ## 10. Failure paths and tests

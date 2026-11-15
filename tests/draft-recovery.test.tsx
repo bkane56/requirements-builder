@@ -639,7 +639,7 @@ function Harness({
   timer,
   apiRef,
 }: {
-  storage: Storage | null;
+  storage: Storage | null | undefined;
   timer: DraftTimer;
   apiRef: ApiHandle;
 }) {
@@ -775,6 +775,16 @@ describe("react restoration order", () => {
     expect(screen.getByText("empty")).toBeTruthy();
     expect(storage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("Receipt Tracker");
     expect(storage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("9");
+  });
+
+  it("does not read or write storage before the caller has resolved it", () => {
+    const storage = new MemoryStorage();
+    storeRaw(storage, recoveryDocument());
+    const apiRef: ApiHandle = { current: null };
+    render(<Harness storage={undefined} timer={manualTimer().timer} apiRef={apiRef} />);
+    expect(screen.getByText("loading")).toBeTruthy();
+    expect(storage.writes).toBe(0);
+    expect(storage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain("Receipt Tracker");
   });
 
   it("renders an empty ready draft when storage is unavailable", () => {

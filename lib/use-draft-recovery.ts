@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { createDraftPersistence, type DraftRecovery, type DraftTimer } from "./draft-recovery";
 
-export function useDraftRecovery(storage: Storage | null, options?: { delayMs?: number; timer?: DraftTimer }) {
+export function useDraftRecovery(storage: Storage | null | undefined, options?: { delayMs?: number; timer?: DraftTimer }) {
   // Timer options are fixed for the life of this controller. Phase 2 passes the browser timer.
   const [controller] = useState(() => createDraftPersistence(options));
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getServerSnapshot);
 
   useLayoutEffect(() => {
+    // Undefined means the caller has not chosen storage yet. Restoring now would publish an empty draft.
+    if (storage === undefined) return;
     controller.restore(storage ?? emptyStorage);
     if (!storage) return;
     return () => {
@@ -47,7 +49,7 @@ export function useDraftRecovery(storage: Storage | null, options?: { delayMs?: 
     controller.flush(storage);
   }, [controller, storage]);
 
-  const reset = useCallback(() => controller.reset(storage), [controller, storage]);
+  const reset = useCallback(() => controller.reset(storage ?? null), [controller, storage]);
 
   const acceptsGeneration = useCallback(
     (generation: number) => controller.acceptsGeneration(generation),
@@ -58,6 +60,7 @@ export function useDraftRecovery(storage: Storage | null, options?: { delayMs?: 
     ready: snapshot.ready,
     generation: snapshot.generation,
     draft: snapshot.draft,
+    lastSave: snapshot.lastSave,
     schedule,
     flush,
     reset,

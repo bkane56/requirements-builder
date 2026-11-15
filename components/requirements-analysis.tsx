@@ -83,9 +83,11 @@ function useInlineConfirmation(active: boolean, cancelRef: RefObject<HTMLButtonE
 
 export function RequirementsAnalysis({
   config,
+  resetGeneration,
   onApplyPrepared,
 }: {
   config: ProjectConfig;
+  resetGeneration: number;
   onApplyPrepared: (draft: RequirementDraft, prepared: PreparedRequirementChange) => void;
 }) {
   const content = requirementsOf(config);
@@ -112,10 +114,38 @@ export function RequirementsAnalysis({
   const [rejectedFindingId, setRejectedFindingId] = useState<string | null>(null);
   const [privacyIntent, setPrivacyIntent] = useState<"analysis" | "writing">("analysis");
   const writingContinueRef = useRef<(() => void) | null>(null);
+  const [resetSeen, setResetSeen] = useState(resetGeneration);
+  const resetSeenRef = useRef(resetGeneration);
+  const clearingReset = resetSeen !== 0 && resetSeen !== resetGeneration;
+  if (resetSeen !== resetGeneration) {
+    setResetSeen(resetGeneration);
+    if (clearingReset) {
+      setInFlight(false);
+      setConfirming(false);
+      setConfirmingRerun(false);
+      setAcknowledged(false);
+      setError(null);
+      setStored(null);
+      setSession(null);
+      setDraftFindingId(null);
+      setPendingApply(null);
+      setRejectedFindingId(null);
+      setPrivacyIntent("analysis");
+    }
+  }
+  useLayoutEffect(() => {
+    if (resetSeenRef.current === resetGeneration) return;
+    const previous = resetSeenRef.current;
+    resetSeenRef.current = resetGeneration;
+    if (previous === 0) return;
+    startedRef.current += 1;
+    appliedRef.current = startedRef.current;
+    writingContinueRef.current = null;
+  }, [resetGeneration]);
 
   const stale = stored !== null && stored.fingerprint !== fingerprint;
   const structured = content.mode === "structured";
-  if (pendingApply) {
+  if (!clearingReset && pendingApply) {
     const actualFingerprint = requirementsChangeFingerprint(content);
     if (actualFingerprint === pendingApply.expectedFingerprint) {
       const findingId = pendingApply.findingId;
@@ -395,6 +425,7 @@ export function RequirementsAnalysis({
     </section>
     <RequirementsWriter
       config={config}
+      resetGeneration={resetGeneration}
       clarifications={clarifications}
       privacyAcknowledged={acknowledged}
       interactionBlocked={inFlight || confirming || confirmingRerun}

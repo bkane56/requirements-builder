@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
 import { evaluateAdvisories } from "@/lib/advisories";
 import {
   applyRequirementChange,
@@ -9,6 +9,8 @@ import {
 } from "@/lib/ai/review";
 import { assembleRequirements } from "@/lib/assemble-requirements";
 import { configsMatch, defaultConfig, type ProjectConfig } from "@/lib/config";
+import { DRAFT_RECOVERY_VERSION, type DraftRecovery, type SaveDraftResult } from "@/lib/draft-recovery";
+import { useDraftRecovery } from "@/lib/use-draft-recovery";
 import {
   CONFIG_FILE_MAX_BYTES,
   CONFIG_FILE_NAME,
@@ -163,6 +165,38 @@ type AssembledSnapshot = {
   config: ProjectConfig;
   markdown: string;
 };
+
+function subscribeBrowserStorage() {
+  return () => {};
+}
+
+function readBrowserStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function unresolvedBrowserStorage(): undefined {
+  return undefined;
+}
+
+function toRecoveryDraft(config: ProjectConfig, markdown: string, assembled: AssembledSnapshot | null): DraftRecovery {
+  return {
+    version: DRAFT_RECOVERY_VERSION,
+    config,
+    output: { markdown, assembled },
+    analysis: null,
+    writing: null,
+  };
+}
+
+export function recoveryStatusText(result: SaveDraftResult | null): string | null {
+  if (result === null || result.status === "saved") return null;
+  if (result.status === "partial") return UI_TEXT.draftRecovery.partial;
+  return UI_TEXT.draftRecovery.unavailable;
+}
 
 type PendingAction = {
   kind: "replace" | "restore";
@@ -625,6 +659,13 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const copyGeneration = useRef(0);
   const keepEditsRef = useRef<HTMLButtonElement>(null);
   const downloadCount = useRef(0);
+  const startNewCancelRef = useRef<HTMLButtonElement>(null);
+  const startNewReturnRef = useRef<HTMLElement | null>(null);
+  const storage = useSyncExternalStore(subscribeBrowserStorage, readBrowserStorage, unresolvedBrowserStorage);
+  const { ready, generation, draft: recoveredDraft, lastSave, schedule, reset, acceptsGeneration } = useDraftRecovery(storage);
+  const [appliedGeneration, setAppliedGeneration] = useState(0);
+  const [startNewConfirming, setStartNewConfirming] = useState(false);
+  const [resetStorageFailed, setResetStorageFailed] = useState(false);
   const integrationAdvisory = evaluateAdvisories(config).find((advisory) => advisory.field === "integrationTests");
 
   const update = <K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]) =>
@@ -851,6 +892,60 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const activePending =
     pending && configsMatch(config, pending.config) && markdown === pending.markdown ? pending : null;
   const canRestore = edited;
+  if (ready && appliedGeneration !== generation) {
+    setAppliedGeneration(generation);
+    if (recoveredDraft) {
+      setConfig(recoveredDraft.config);
+      setMarkdown(recoveredDraft.output.markdown);
+      setAssembled(recoveredDraft.output.assembled);
+      setErrors({});
+      setAssemblyError("");
+      setPending(null);
+      setCopyStatus("idle");
+      setConfigFileNotice(null);
+      setStartNewConfirming(false);
+    } else if (appliedGeneration !== 0) {
+      setConfig(defaultConfig);
+      setMarkdown("");
+      setAssembled(null);
+      setErrors({});
+      setAssemblyError("");
+      setPending(null);
+      setCopyStatus("idle");
+      setConfigFileNotice(null);
+    }
+  }
+  const persistenceReady = ready && appliedGeneration === generation;
+  const saveNotice = storage === null ? UI_TEXT.draftRecovery.unavailable : recoveryStatusText(lastSave);
+  const showResetFailure = resetStorageFailed && lastSave?.status !== "saved";
+
+  useEffect(() => {
+    if (!persistenceReady) return;
+    schedule(toRecoveryDraft(config, markdown, assembled), generation);
+  }, [persistenceReady, schedule, config, markdown, assembled, generation]);
+
+  useEffect(() => {
+    if (!startNewConfirming) return;
+    startNewCancelRef.current?.focus();
+    return () => {
+      const target = startNewReturnRef.current;
+      startNewReturnRef.current = null;
+      if (target?.isConnected) target.focus();
+    };
+  }, [startNewConfirming]);
+
+  function openStartNew(trigger: HTMLElement) {
+    if (!persistenceReady) return;
+    startNewReturnRef.current = trigger;
+    setStartNewConfirming(true);
+  }
+
+  function confirmStartNew() {
+    if (!persistenceReady) return;
+    const result = reset();
+    setStartNewConfirming(false);
+    setResetStorageFailed(result.storage !== "cleared");
+  }
 
   useEffect(() => {
     if (!edited) return;
@@ -871,6 +966,16 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     <div className="layout">
       <section className="configuration" aria-labelledby="configuration-heading">
         <h2 id="configuration-heading">{UI_TEXT.configurationHeading}</h2>
+        {saveNotice && (
+          <p role="status" className="notice">
+            {saveNotice}
+          </p>
+        )}
+        {showResetFailure && (
+          <p role="alert" className="error">
+            {UI_TEXT.draftRecovery.resetFailed}
+          </p>
+        )}
         <form onSubmit={handleSubmit} noValidate aria-label={UI_TEXT.configurationFormLabel}>
         {TEXT_FIELDS.map((field) => {
           const id = fieldId(field.name);
@@ -1138,10 +1243,45 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             {UI_TEXT.assemblyFailed(assemblyError)}
           </p>
         )}
+        <div className="actions">
+          <button
+            type="button"
+            className="secondary"
+            disabled={!persistenceReady || startNewConfirming}
+            onClick={(event) => openStartNew(event.currentTarget)}
+          >
+            {UI_TEXT.buttons.startNewProject}
+          </button>
+        </div>
+        {startNewConfirming && (
+          <div
+            className="confirm"
+            role="region"
+            aria-labelledby="start-new-heading"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              setStartNewConfirming(false);
+            }}
+          >
+            <h3 id="start-new-heading">{UI_TEXT.draftRecovery.startHeading}</h3>
+            <p>{UI_TEXT.draftRecovery.startBody}</p>
+            <div className="actions">
+              <button type="button" className="secondary" ref={startNewCancelRef} onClick={() => setStartNewConfirming(false)}>
+                {UI_TEXT.buttons.cancel}
+              </button>
+              <button type="button" onClick={confirmStartNew}>
+                {UI_TEXT.buttons.clearProject}
+              </button>
+            </div>
+          </div>
+        )}
         </form>
         <RequirementsAnalysis
           config={config}
+          resetGeneration={generation}
           onApplyPrepared={(draft: RequirementDraft, prepared: PreparedRequirementChange) => {
+            if (!acceptsGeneration(generation)) return;
             setConfig((current) => commitPreparedRequirementChange(current, draft, prepared));
           }}
         />
