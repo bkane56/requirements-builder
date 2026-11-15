@@ -5,10 +5,12 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder, { commitPreparedRequirementChange, recoveryStatusText } from "../components/requirements-builder";
+import { RequirementsWriter } from "../components/requirements-writer";
 import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
 import { readAnalysisResult } from "../lib/ai/analysis-schema";
 import { parseReviewSession, prepareRequirementChange } from "../lib/ai/review";
-import { buildWritingInput, writingFingerprint, writingSourceFingerprint } from "../lib/ai/writing-input";
+import { parseStoredWritingSession } from "../lib/ai/writing-suggestions";
+import { buildWritingInput, currentSourceFingerprint, writingFingerprint, writingSourceFingerprint } from "../lib/ai/writing-input";
 import { assembleRequirements } from "../lib/assemble-requirements";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { serializeConfig } from "../lib/config-file";
@@ -2818,6 +2820,486 @@ describe("analysis review recovery", () => {
     expect(field("Project name").value).toBe("");
     expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("writing session recovery", () => {
+  const suggestionText = "  A person has a role.\n";
+  const nestedText = "  Show the image.\n";
+
+  function baseConfig(requirementsContent?: ReturnType<typeof defaultRequirementsContent>) {
+    return normalizeSelections({
+      ...defaultConfig,
+      projectName: "Receipt Tracker",
+      businessRequirements: "Users can upload a receipt.",
+      ...(requirementsContent ? { requirementsContent } : {}),
+    });
+  }
+
+  function seedWriting(sessionInput: Record<string, unknown>, options?: { requirementsContent?: ReturnType<typeof defaultRequirementsContent>; markdown?: string; analysis?: boolean }) {
+    const config = baseConfig(options?.requirementsContent);
+    const session = parseStoredWritingSession(sessionInput);
+    if (!session) throw new Error("Could not seed a writing session.");
+    const analysisResult = options?.analysis ? readAnalysisResult({ findings: [analysisFinding] }) : null;
+    const analysisSession = options?.analysis ? parseReviewSession({ requestId: 4, fingerprint: "run-fingerprint", records: {} }) : null;
+    if (options?.analysis && (!analysisResult || !analysisSession)) throw new Error("Could not seed analysis beside writing.");
+    const analysis = analysisResult && analysisSession
+      ? { requestId: 4, fingerprint: "run-fingerprint", result: analysisResult, session: analysisSession, privacyAcknowledged: true }
+      : null;
+    expect(
+      saveDraftRecovery(sessionStorage, {
+        version: 1,
+        config,
+        output: { markdown: options?.markdown ?? "Saved note\n", assembled: null },
+        analysis,
+        writing: session,
+      }),
+    ).toEqual({ status: "saved" });
+    return session;
+  }
+
+  function pendingSuggestion(text = suggestionText, nested = nestedText) {
+    return {
+      id: "W-001",
+      kind: "new-functional",
+      text,
+      rationale: "The description names a person.",
+      uncertainty: null,
+      nestedCriteria: [{ text: nested, rationale: "The receipt is stored." }],
+    };
+  }
+
+  it("restores edited suggestion text and nested text without sending or applying", async () => {
+    fillRequired();
+    const { pending, fetchMock } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.send }));
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "A person has a role.",
+            rationale: "The description names a person.",
+            uncertainty: null,
+            nestedCriteria: [{ text: "Opening a stored receipt shows its image.", rationale: "The receipt is stored." }],
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeTruthy();
+    fireEvent.change(field(UI_TEXT.writing.textLabel("W-001")), { target: { value: suggestionText } });
+    fireEvent.change(field(UI_TEXT.writing.nestedTextLabel("W-001", 0)), { target: { value: nestedText } });
+    flushDraft();
+
+    vi.stubGlobal("fetch", vi.fn());
+    reloadBuilder();
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe(suggestionText);
+    expect(field(UI_TEXT.writing.nestedTextLabel("W-001", 0)).value).toBe(nestedText);
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.applyChange("W-001") })).toBeNull();
+    expect(screen.queryByLabelText("FR-001 text")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    change("Project name", "Changed after restore");
+    expect(screen.getByText(UI_TEXT.writing.stale)).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }) as HTMLButtonElement).disabled).toBe(true);
+    flushDraft();
+    const saved = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as {
+      writing: { sourceFingerprint: string; suggestions: Array<{ text: string; nestedCriteria: Array<{ text: string }> }> };
+    };
+    expect(saved.writing.suggestions[0].text).toBe(suggestionText);
+    expect(saved.writing.suggestions[0].nestedCriteria[0].text).toBe(nestedText);
+    const changed = normalizeSelections({ ...baseConfig(), projectName: "Changed after restore" });
+    expect(saved.writing.sourceFingerprint).toBe(currentSourceFingerprint(baseConfig(), "free-text", []));
+    expect(saved.writing.sourceFingerprint).not.toBe(currentSourceFingerprint(changed, "free-text", []));
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps an accepted parent hidden and a detached criterion unaccepted", () => {
+    cleanup();
+    const requirementsContent = addFunctionalRequirement(
+      beginStructuredRequirements(defaultRequirementsContent(), "empty", "", ""),
+      "A person has a role.",
+      { status: "proposed" },
+    );
+    const config = baseConfig(requirementsContent);
+    const sourceFingerprint = currentSourceFingerprint(config, "structured", []);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    seedWriting(
+      {
+        requestId: 3,
+        origin: "structured",
+        sourceFingerprint,
+        writingFingerprint: "writing-fingerprint",
+        suggestions: [
+          { ...pendingSuggestion("A person has a role.", nestedText), detachedIds: ["W-002"] },
+          {
+            id: "W-002",
+            kind: "new-criterion",
+            text: nestedText,
+            rationale: "The receipt is stored.",
+            uncertainty: null,
+            scope: "requirement",
+            requirementIds: ["FR-001"],
+          },
+          {
+            id: "W-003",
+            kind: "new-criterion",
+            text: "A dismissed criterion.",
+            rationale: "Not needed.",
+            uncertainty: null,
+            scope: "project",
+            requirementIds: [],
+          },
+        ],
+        dismissedIds: ["W-003"],
+        acceptedIds: ["W-001"],
+        nextSuggestionNumber: 4,
+        includedClarifications: [],
+      },
+      { requirementsContent },
+    );
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(field("FR-001 text").value).toBe("A person has a role.");
+    expect(field("FR-001 status").value).toBe("proposed");
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-003"))).toBeNull();
+    expect(field(UI_TEXT.writing.textLabel("W-002")).value).toBe(nestedText);
+    expect(screen.getByRole("region", { name: UI_TEXT.writing.criteriaFor("FR-001") })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: UI_TEXT.analysis.applyChange("W-002") })).toBeNull();
+    expect((screen.getByRole("button", { name: UI_TEXT.writing.preview("W-002") }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-002") }));
+    expect(screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("W-002") })).toBeTruthy();
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("blocks a stale or duplicate restored suggestion and drops a corrupt writing slice", () => {
+    cleanup();
+    const requirementsContent = addFunctionalRequirement(
+      beginStructuredRequirements(defaultRequirementsContent(), "empty", "", ""),
+      "Show the receipt total.",
+      { status: "confirmed" },
+    );
+    seedWriting(
+      {
+        requestId: 3,
+        origin: "structured",
+        sourceFingerprint: "stale-source",
+        writingFingerprint: "writing-fingerprint",
+        suggestions: [pendingSuggestion("Show the receipt total.", "The total is visible.")],
+        dismissedIds: [],
+        acceptedIds: [],
+        nextSuggestionNumber: 2,
+        includedClarifications: [
+          { requestId: 4, findingId: "F-001", question: "What is the maximum file size?", answer: "  Name and role.\n" },
+        ],
+      },
+      { requirementsContent, analysis: true, markdown: "Saved note\n" },
+    );
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(preview()).toBe("Saved note\n");
+    expect(field("FR-001 text").value).toBe("Show the receipt total.");
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe("Show the receipt total.");
+    expect(screen.getByText(UI_TEXT.writing.stale)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.writing.duplicate)).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    flushDraft();
+    const kept = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as {
+      writing: { sourceFingerprint: string; includedClarifications: Array<{ answer: string }> };
+    };
+    expect(kept.writing.sourceFingerprint).toBe("stale-source");
+    expect(kept.writing.includedClarifications[0].answer).toBe("  Name and role.\n");
+
+    cleanup();
+    seedWriting(
+      {
+        requestId: 3,
+        origin: "free-text",
+        sourceFingerprint: "stale-source",
+        writingFingerprint: "writing-fingerprint",
+        suggestions: [pendingSuggestion()],
+        dismissedIds: [],
+        acceptedIds: [],
+        nextSuggestionNumber: 2,
+        includedClarifications: [],
+      },
+      { analysis: true },
+    );
+    const stored = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as { writing: unknown };
+    stored.writing = { accepted: true };
+    sessionStorage.setItem(DRAFT_RECOVERY_STORAGE_KEY, JSON.stringify(stored));
+    render(<RequirementsBuilder templates={templates} />);
+
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(preview()).toBe("Saved note\n");
+    expect(screen.getByText(analysisFinding.explanation)).toBeTruthy();
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+  });
+
+  it("reserves the restored request id and ignores a late writing response after Start new project", async () => {
+    cleanup();
+    sessionStorage.setItem(DOWNLOAD_COUNT_STORAGE_KEY, "4");
+    const config = baseConfig();
+    seedWriting(
+      {
+        requestId: 3,
+        origin: "free-text",
+        sourceFingerprint: currentSourceFingerprint(config, "free-text", []),
+        writingFingerprint: "writing-fingerprint",
+        suggestions: [pendingSuggestion("A person has a role.", "Opening a stored receipt shows its image.")],
+        dismissedIds: [],
+        acceptedIds: [],
+        nextSuggestionNumber: 2,
+        includedClarifications: [],
+      },
+      { analysis: true },
+    );
+    const { pending, fetchMock } = holdAnalysisFetch();
+    render(<RequirementsBuilder templates={templates} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe("A person has a role.");
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }));
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe("A person has a role.");
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    expect(screen.queryByRole("region", { name: UI_TEXT.writing.confirmHeading })).toBeNull();
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "The second draft names a deadline.",
+            rationale: "A date is missing.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByDisplayValue("The second draft names a deadline.")).toBeTruthy();
+    await act(async () => {});
+    flushDraft();
+    const saved = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as { writing: { requestId: number } };
+    expect(saved.writing.requestId).toBe(4);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.clearProject }));
+    pending[1].resolve(
+      analysisResponse(
+        writingBody(pending[1].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "This late draft must not return.",
+            rationale: "Too late.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByDisplayValue("This late draft must not return.")).toBeNull();
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+    expect(field("Project name").value).toBe("");
+    expect(sessionStorage.getItem(DOWNLOAD_COUNT_STORAGE_KEY)).toBe("4");
+    vi.unstubAllGlobals();
+  });
+
+  it("does not request writing while restoring under Strict Mode", () => {
+    cleanup();
+    const config = baseConfig();
+    seedWriting({
+      requestId: 3,
+      origin: "free-text",
+      sourceFingerprint: currentSourceFingerprint(config, "free-text", []),
+      writingFingerprint: "writing-fingerprint",
+      suggestions: [pendingSuggestion()],
+      dismissedIds: [],
+      acceptedIds: [],
+      nextSuggestionNumber: 2,
+      includedClarifications: [],
+    });
+    const realStorage = window.sessionStorage;
+    let writes = 0;
+    const counting = new Proxy(realStorage, {
+      get(target, prop, receiver) {
+        if (prop === "setItem") {
+          return (key: string, value: string) => {
+            if (key === DRAFT_RECOVERY_STORAGE_KEY) writes += 1;
+            return target.setItem(key, value);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", { configurable: true, get: () => counting });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(
+        <StrictMode>
+          <RequirementsBuilder templates={templates} />
+        </StrictMode>,
+      );
+      expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe(suggestionText);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(writes).toBeLessThanOrEqual(4);
+      expect(counting.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toContain(suggestionText.trim());
+    } finally {
+      if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not put a cleared writing session back before the parent stores the clear, and refresh stays empty", () => {
+    cleanup();
+    const config = baseConfig();
+    const session = parseStoredWritingSession({
+      requestId: 3,
+      origin: "free-text",
+      sourceFingerprint: currentSourceFingerprint(config, "free-text", []),
+      writingFingerprint: "writing-fingerprint",
+      suggestions: [pendingSuggestion("A person has a role.", "Opening a stored receipt shows its image.")],
+      dismissedIds: [],
+      acceptedIds: [],
+      nextSuggestionNumber: 2,
+      includedClarifications: [],
+    });
+    if (!session) throw new Error("Could not build a writing session.");
+    const published: Array<typeof session | null> = [];
+    function writer(generation: number, recovered: typeof session | null) {
+      return (
+        <RequirementsWriter
+          config={config}
+          resetGeneration={generation}
+          recoveredWriting={recovered}
+          onWritingChange={(next) => {
+            published.push(next);
+          }}
+          clarifications={[]}
+          privacyAcknowledged
+          interactionBlocked={false}
+          onNeedPrivacy={() => undefined}
+          onApplyPrepared={() => undefined}
+        />
+      );
+    }
+
+    const view = render(writer(1, session));
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe("A person has a role.");
+
+    view.rerender(writer(2, session));
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+    expect(published.at(-1)).toBeNull();
+
+    view.rerender(writer(2, null));
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+    cleanup();
+
+    seedWriting(
+      {
+        requestId: 3,
+        origin: "free-text",
+        sourceFingerprint: currentSourceFingerprint(config, "free-text", []),
+        writingFingerprint: "writing-fingerprint",
+        suggestions: [pendingSuggestion("A person has a role.", "Opening a stored receipt shows its image.")],
+        dismissedIds: [],
+        acceptedIds: [],
+        nextSuggestionNumber: 2,
+        includedClarifications: [],
+      },
+      { analysis: true },
+    );
+    render(<RequirementsBuilder templates={templates} />);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.clearProject }));
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+    reloadBuilder();
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-001"))).toBeNull();
+    expect(field("Project name").value).toBe("");
+  });
+
+  it("replaces a recovered writing session without bringing the previous one back, including after refresh", async () => {
+    cleanup();
+    const previousText = "A person has a role.";
+    const replacementText = "The second draft names a deadline.";
+    const config = baseConfig();
+    seedWriting(
+      {
+        requestId: 3,
+        origin: "free-text",
+        sourceFingerprint: currentSourceFingerprint(config, "free-text", []),
+        writingFingerprint: "writing-fingerprint",
+        suggestions: [pendingSuggestion(previousText, "Opening a stored receipt shows its image.")],
+        dismissedIds: [],
+        acceptedIds: [],
+        nextSuggestionNumber: 2,
+        includedClarifications: [],
+      },
+      { analysis: true },
+    );
+    const { pending } = holdAnalysisFetch();
+    render(<RequirementsBuilder templates={templates} />);
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe(previousText);
+
+    const suggestionValue = () => (document.getElementById("writing-text-W-001") as HTMLTextAreaElement | null)?.value ?? "";
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: replacementText,
+            rationale: "A date is missing.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByDisplayValue(replacementText)).toBeTruthy();
+    const afterResult = suggestionValue();
+    await act(async () => {});
+    const afterParentUpdate = suggestionValue();
+
+    expect(afterResult).toBe(replacementText);
+    expect(afterParentUpdate).toBe(replacementText);
+    expect(screen.queryByDisplayValue(previousText)).toBeNull();
+
+    flushDraft();
+    vi.stubGlobal("fetch", vi.fn());
+    reloadBuilder();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(field(UI_TEXT.writing.textLabel("W-001")).value).toBe(replacementText);
+    expect(screen.queryByDisplayValue(previousText)).toBeNull();
+    const saved = JSON.parse(sessionStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY) ?? "{}") as {
+      writing: { requestId: number; suggestions: Array<{ text: string }> };
+    };
+    expect(saved.writing.requestId).toBe(4);
+    expect(saved.writing.suggestions[0].text).toBe(replacementText);
+    vi.unstubAllGlobals();
   });
 });
 

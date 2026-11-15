@@ -11,6 +11,7 @@ import {
   type Stage6Clarification,
 } from "@/lib/ai/review";
 import type { ProjectConfig } from "@/lib/config";
+import type { DraftRecovery } from "@/lib/draft-recovery";
 import { requirementsOf } from "@/lib/requirements-content";
 import { UI_TEXT } from "@/lib/ui-text";
 import {
@@ -49,6 +50,8 @@ type PendingSuggestionApply = {
 export function RequirementsWriter({
   config,
   resetGeneration,
+  recoveredWriting,
+  onWritingChange,
   clarifications,
   privacyAcknowledged,
   interactionBlocked,
@@ -57,6 +60,8 @@ export function RequirementsWriter({
 }: {
   config: ProjectConfig;
   resetGeneration: number;
+  recoveredWriting: DraftRecovery["writing"];
+  onWritingChange: (writing: DraftRecovery["writing"], generation: number) => void;
   clarifications: readonly Stage6Clarification[];
   privacyAcknowledged: boolean;
   interactionBlocked: boolean;
@@ -77,12 +82,24 @@ export function RequirementsWriter({
   const replacementCancelRef = useRef<HTMLButtonElement>(null);
   const replacementConfirmation = useInlineConfirmation(confirmingId !== null, replacementCancelRef);
   const [resetSeen, setResetSeen] = useState(resetGeneration);
+  const [restoredGeneration, setRestoredGeneration] = useState(0);
   const resetSeenRef = useRef(resetGeneration);
+  const allowPublish = useRef(false);
   const clearingReset = resetSeen !== 0 && resetSeen !== resetGeneration;
   if (resetSeen !== resetGeneration) {
     setResetSeen(resetGeneration);
+    setRestoredGeneration(resetGeneration);
     if (clearingReset) {
       setDraft(null);
+      setInFlight(false);
+      setError(null);
+      setMessage(null);
+      setTransitionNotice(null);
+      setPreparedSuggestion(null);
+      setPendingApply(null);
+      setConfirmingId(null);
+    } else if (recoveredWriting) {
+      setDraft(recoveredWriting);
       setInFlight(false);
       setError(null);
       setMessage(null);
@@ -93,13 +110,41 @@ export function RequirementsWriter({
     }
   }
   useLayoutEffect(() => {
-    if (resetSeenRef.current === resetGeneration) return;
+    if (resetSeenRef.current === resetGeneration) {
+      const requestId = recoveredWriting?.requestId ?? 0;
+      if (requestId > startedRef.current) {
+        startedRef.current = requestId;
+        appliedRef.current = requestId;
+      }
+      if (resetGeneration !== 0) allowPublish.current = true;
+      return;
+    }
     const previous = resetSeenRef.current;
     resetSeenRef.current = resetGeneration;
-    if (previous === 0) return;
-    startedRef.current += 1;
-    appliedRef.current = startedRef.current;
-  }, [resetGeneration]);
+    if (previous === 0) {
+      const requestId = recoveredWriting?.requestId ?? 0;
+      startedRef.current = requestId;
+      appliedRef.current = requestId;
+    } else {
+      startedRef.current += 1;
+      appliedRef.current = startedRef.current;
+    }
+    allowPublish.current = true;
+  }, [resetGeneration, recoveredWriting]);
+  if (
+    restoredGeneration !== resetGeneration &&
+    resetSeen === resetGeneration &&
+    resetSeen !== 0 &&
+    draft === null &&
+    recoveredWriting
+  ) {
+    setRestoredGeneration(resetGeneration);
+    setDraft(recoveredWriting);
+  }
+  useEffect(() => {
+    if (!allowPublish.current) return;
+    onWritingChange(draft, resetGeneration);
+  }, [draft, resetGeneration, onWritingChange]);
   const sourceCurrent =
     draft !== null &&
     includedAnswersMatch(draft.includedClarifications, clarifications) &&
@@ -155,6 +200,7 @@ export function RequirementsWriter({
 
   async function sendDraft() {
     const requestId = startedRef.current + 1;
+    const generationAtSend = resetGeneration;
     startedRef.current = requestId;
     setInFlight(true);
     setError(null);
@@ -174,15 +220,16 @@ export function RequirementsWriter({
           })),
         }),
       });
-      applyPayload(requestId, await response.json());
+      applyPayload(requestId, generationAtSend, await response.json());
     } catch {
-      if (requestId === startedRef.current) setError("provider");
+      if (generationAtSend === resetSeenRef.current && requestId === startedRef.current) setError("provider");
     } finally {
-      if (requestId === startedRef.current) setInFlight(false);
+      if (generationAtSend === resetSeenRef.current && requestId === startedRef.current) setInFlight(false);
     }
   }
 
-  function applyPayload(requestId: number, payload: unknown) {
+  function applyPayload(requestId: number, generationAtSend: number, payload: unknown) {
+    if (generationAtSend !== resetSeenRef.current) return;
     if (requestId !== startedRef.current || requestId < appliedRef.current) return;
     const session = readWritingSession(payload, requestId);
     if (!session) {

@@ -183,23 +183,29 @@ function unresolvedBrowserStorage(): undefined {
 }
 
 type RecoveredAnalysis = DraftRecovery["analysis"];
+type RecoveredWriting = DraftRecovery["writing"];
 
 function toRecoveryDraft(
   config: ProjectConfig,
   markdown: string,
   assembled: AssembledSnapshot | null,
   analysis: RecoveredAnalysis,
+  writing: RecoveredWriting,
 ): DraftRecovery {
   return {
     version: DRAFT_RECOVERY_VERSION,
     config,
     output: { markdown, assembled },
     analysis,
-    writing: null,
+    writing,
   };
 }
 
 function sameAnalysis(left: RecoveredAnalysis, right: RecoveredAnalysis): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameWriting(left: RecoveredWriting, right: RecoveredWriting): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -676,6 +682,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const { ready, generation, draft: recoveredDraft, lastSave, schedule, reset, acceptsGeneration } = useDraftRecovery(storage);
   const [appliedGeneration, setAppliedGeneration] = useState(0);
   const [analysis, setAnalysis] = useState<RecoveredAnalysis>(null);
+  const [writing, setWriting] = useState<RecoveredWriting>(null);
   const [startNewConfirming, setStartNewConfirming] = useState(false);
   const [resetStorageFailed, setResetStorageFailed] = useState(false);
   const integrationAdvisory = evaluateAdvisories(config).find((advisory) => advisory.field === "integrationTests");
@@ -917,6 +924,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
       setConfigFileNotice(null);
       setStartNewConfirming(false);
       setAnalysis(recoveredDraft.analysis);
+      setWriting(recoveredDraft.writing);
     } else if (appliedGeneration !== 0) {
       setConfig(defaultConfig);
       setMarkdown("");
@@ -927,6 +935,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
       setCopyStatus("idle");
       setConfigFileNotice(null);
       setAnalysis(null);
+      setWriting(null);
     }
   }
   const persistenceReady = ready && appliedGeneration === generation;
@@ -935,8 +944,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
 
   useEffect(() => {
     if (!persistenceReady) return;
-    schedule(toRecoveryDraft(config, markdown, assembled, analysis), generation);
-  }, [persistenceReady, schedule, config, markdown, assembled, analysis, generation]);
+    schedule(toRecoveryDraft(config, markdown, assembled, analysis, writing), generation);
+  }, [persistenceReady, schedule, config, markdown, assembled, analysis, writing, generation]);
 
   useEffect(() => {
     if (!startNewConfirming) return;
@@ -952,6 +961,14 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     (next: RecoveredAnalysis, reportedGeneration: number) => {
       if (!acceptsGeneration(reportedGeneration)) return;
       setAnalysis((current) => (sameAnalysis(current, next) ? current : next));
+    },
+    [acceptsGeneration],
+  );
+
+  const reportWriting = useCallback(
+    (next: RecoveredWriting, reportedGeneration: number) => {
+      if (!acceptsGeneration(reportedGeneration)) return;
+      setWriting((current) => (sameWriting(current, next) ? current : next));
     },
     [acceptsGeneration],
   );
@@ -1304,6 +1321,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           resetGeneration={generation}
           recoveredAnalysis={analysis}
           onAnalysisChange={reportAnalysis}
+          recoveredWriting={writing}
+          onWritingChange={reportWriting}
           onApplyPrepared={(draft: RequirementDraft, prepared: PreparedRequirementChange) => {
             if (!acceptsGeneration(generation)) return;
             setConfig((current) => commitPreparedRequirementChange(current, draft, prepared));
