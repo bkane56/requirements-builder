@@ -4,6 +4,12 @@ import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { MISSING_TEXT, NO_STRETCH_GOALS, OPEN_QUESTIONS, SECTIONS } from "../lib/constants";
 import { loadTemplates } from "../lib/load-templates";
 import { MODULES } from "../lib/module-registry";
+import {
+  addAcceptanceCriterion,
+  addFunctionalRequirement,
+  updateFunctionalRequirement,
+  beginStructuredRequirements,
+} from "../lib/requirements-content";
 import { defaultToolchain } from "../lib/toolchain";
 import { defaultUiFramework } from "../lib/ui-framework";
 
@@ -257,6 +263,78 @@ describe("technology module selection", () => {
     expect(markdown).toContain("yarn install --frozen-lockfile");
     expect(markdown).toContain("./mvnw clean verify");
     expect(markdown).toContain("- Full stack: this Web App includes both a UI and a backend.");
+  });
+
+  it("emits confirmed structured requirements once and omits proposed items", () => {
+    const businessRequirements = "  Show the people list.\nKeep the spacing.  ";
+    let content = beginStructuredRequirements(
+      config().requirementsContent!,
+      "copy",
+      businessRequirements,
+      "The application builds and its tests pass.",
+    );
+    content = addFunctionalRequirement(content, "Selecting a person opens that person's detail.");
+    content = addFunctionalRequirement(content, "The API uses mock data until a database is requested.");
+    content = addFunctionalRequirement(content, "The first version has no authentication.");
+    content = addFunctionalRequirement(content, "Person records include an unspecified nickname field.");
+    content = updateFunctionalRequirement(content, "FR-005", { status: "proposed" });
+    content = addAcceptanceCriterion(content, {
+      scope: "requirement",
+      text: "The detail page shows the person returned by the API.",
+      requirementIds: ["FR-002"],
+    });
+    const markdown = assembleRequirements(
+      config({
+        businessRequirements,
+        acceptanceCriteria: "The application builds and its tests pass.",
+        requirementsContent: content,
+      }),
+      templates,
+    );
+    expect(markdown).toContain("### Confirmed functional requirements");
+    expect(markdown).toContain("### Confirmed acceptance criteria");
+    expect(markdown).not.toContain("### User-provided requirements");
+    expect(markdown).toContain("**FR-001.**   Show the people list.\nKeep the spacing.  ");
+    expect(markdown).toContain("**FR-002.** Selecting a person opens that person's detail.");
+    expect(markdown).toContain("**FR-003.** The API uses mock data until a database is requested.");
+    expect(markdown).toContain("**FR-004.** The first version has no authentication.");
+    expect(markdown).not.toContain("unspecified nickname");
+    expect(markdown).toContain("**AC-001.** The application builds and its tests pass.\nApplies to the whole project.");
+    expect(markdown).toContain("**AC-002.** The detail page shows the person returned by the API.\nApplies to FR-002.");
+    expect(markdown.split(businessRequirements)).toHaveLength(2);
+    expect(markdown).toContain("Which acceptance criterion applies to FR-001? None references it.");
+    expect(markdown).not.toContain(OPEN_QUESTIONS.acceptanceCriteria);
+  });
+
+  it("keeps free-text requirements authoritative until structured mode is selected", () => {
+    const content = addFunctionalRequirement(config().requirementsContent!, "Structured only.");
+    const markdown = assembleRequirements(config({ requirementsContent: { ...content, mode: "free-text" } }), templates);
+    expect(markdown).toContain("Users can upload a receipt and see its total.");
+    expect(markdown).toContain("### User-provided requirements");
+    expect(markdown).not.toContain("### Confirmed functional requirements");
+    expect(markdown).not.toContain("Structured only.");
+    expect(markdown).not.toContain("**FR-001.**");
+  });
+
+  it("does not ask which requirement a project-wide criterion covers", () => {
+    const content = beginStructuredRequirements(
+      config().requirementsContent!,
+      "copy",
+      "Show the people list.",
+      "Automated tests pass.",
+    );
+    const markdown = assembleRequirements(
+      config({
+        businessRequirements: "Show the people list.",
+        acceptanceCriteria: "Automated tests pass.",
+        requirementsContent: addFunctionalRequirement(content, "Open a person."),
+      }),
+      templates,
+    );
+    expect(markdown).toContain("Applies to the whole project.");
+    expect(markdown).not.toContain("Which acceptance criterion applies to");
+    expect(markdown).not.toContain(OPEN_QUESTIONS.acceptanceCriteria);
+    expect(markdown).not.toContain(MISSING_TEXT.acceptanceCriteria);
   });
 
   it("asks which UI language to use when a Web App has none", () => {

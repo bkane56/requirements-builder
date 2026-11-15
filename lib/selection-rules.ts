@@ -6,6 +6,7 @@ import {
   type Runtime,
   type StackSide,
 } from "./constants";
+import { normalizeRequirementsContent } from "./requirements-content";
 import { hasLanguage, normalizeStack, type NormalizeStackOptions } from "./toolchain";
 import { normalizeUiFrameworks } from "./ui-framework";
 
@@ -16,6 +17,14 @@ export type NormalizeOptions = {
 
 export function isApiChoiceFixed(config: ProjectConfig): boolean {
   return FIXED_API_BY_APP_TYPE[config.appType] !== undefined;
+}
+
+export function hasUserInterface(config: ProjectConfig): boolean {
+  return config.uiFrameworks.length > 0 || config.uiLanguages.length > 0;
+}
+
+export function hasBackendSelection(config: ProjectConfig): boolean {
+  return config.backendLanguages.length > 0 || config.backendFramework !== "none";
 }
 
 export function allowedRuntimes(config: ProjectConfig): Runtime[] {
@@ -59,6 +68,10 @@ export function normalizeSelections(config: ProjectConfig, options: NormalizeOpt
     const modules = { ...next.modules };
     for (const key of API_MODULES) modules[key] = false;
     next = { ...next, modules };
+  }
+
+  if (next.requirementsContent) {
+    next = { ...next, requirementsContent: normalizeRequirementsContent(next.requirementsContent) };
   }
 
   return next;

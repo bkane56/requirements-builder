@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
+import { evaluateAdvisories } from "@/lib/advisories";
+import {
+  applyRequirementChange,
+  type PreparedRequirementChange,
+  type RequirementDraft,
+} from "@/lib/ai/review";
 import { assembleRequirements } from "@/lib/assemble-requirements";
 import { configsMatch, defaultConfig, type ProjectConfig } from "@/lib/config";
+import { DRAFT_RECOVERY_VERSION, type DraftRecovery, type SaveDraftResult } from "@/lib/draft-recovery";
+import { useDraftRecovery } from "@/lib/use-draft-recovery";
 import {
   CONFIG_FILE_MAX_BYTES,
   CONFIG_FILE_NAME,
@@ -75,6 +83,7 @@ import {
 } from "@/lib/constants";
 import type { Templates } from "@/lib/load-templates";
 import { moduleVersionMap } from "@/lib/module-registry";
+import { requirementsOf, type RequirementsContent } from "@/lib/requirements-content";
 import {
   allowedBackendFrameworks,
   allowedRuntimes,
@@ -84,7 +93,9 @@ import {
 import { defaultToolchain, replaceToolchain, type ToolchainPatch } from "@/lib/toolchain";
 import { defaultUiFramework, replaceUiFramework, type UiFrameworkPatch } from "@/lib/ui-framework";
 import { UI_TEXT } from "@/lib/ui-text";
-import { hasErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
+import { hasErrors, requirementsItemErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
+import { RequirementsEditor } from "./requirements-editor";
+import { RequirementsAnalysis } from "./requirements-analysis";
 
 type TextFieldName = "projectName" | "description" | "businessRequirements" | "acceptanceCriteria" | "stretchGoals";
 
@@ -134,6 +145,7 @@ const CONFIG_FILE_ERRORS: Record<ConfigFileError, string> = {
 
 const ERROR_FOCUS_ORDER: (keyof ValidationErrors)[] = [
   ...TEXT_FIELDS.map((field) => field.name),
+  "requirementsContent",
   "exposesApi",
   "backendLanguages",
   "runtime",
@@ -154,6 +166,55 @@ type AssembledSnapshot = {
   markdown: string;
 };
 
+function subscribeBrowserStorage() {
+  return () => {};
+}
+
+function readBrowserStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function unresolvedBrowserStorage(): undefined {
+  return undefined;
+}
+
+type RecoveredAnalysis = DraftRecovery["analysis"];
+type RecoveredWriting = DraftRecovery["writing"];
+
+function toRecoveryDraft(
+  config: ProjectConfig,
+  markdown: string,
+  assembled: AssembledSnapshot | null,
+  analysis: RecoveredAnalysis,
+  writing: RecoveredWriting,
+): DraftRecovery {
+  return {
+    version: DRAFT_RECOVERY_VERSION,
+    config,
+    output: { markdown, assembled },
+    analysis,
+    writing,
+  };
+}
+
+function sameAnalysis(left: RecoveredAnalysis, right: RecoveredAnalysis): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameWriting(left: RecoveredWriting, right: RecoveredWriting): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export function recoveryStatusText(result: SaveDraftResult | null): string | null {
+  if (result === null || result.status === "saved") return null;
+  if (result.status === "partial") return UI_TEXT.draftRecovery.partial;
+  return UI_TEXT.draftRecovery.unavailable;
+}
+
 type PendingAction = {
   kind: "replace" | "restore";
   config: ProjectConfig;
@@ -162,6 +223,22 @@ type PendingAction = {
 };
 
 const fieldId = (name: keyof ValidationErrors | keyof ProjectConfig) => `field-${name}`;
+
+function focusInvalid(key: keyof ValidationErrors) {
+  if (key === "requirementsContent") {
+    const invalid = document.querySelector<HTMLElement>(`#${fieldId(key)} [aria-invalid="true"]`);
+    (invalid ?? document.getElementById(fieldId(key)))?.focus();
+    return;
+  }
+  if (key === "uiLanguages") {
+    const checkbox = document.querySelector<HTMLInputElement>(`#${fieldId("uiLanguages")} input[type="checkbox"]`);
+    if (checkbox) {
+      checkbox.focus();
+      return;
+    }
+  }
+  document.getElementById(fieldId(key))?.focus();
+}
 
 function describedBy(...ids: (string | false | undefined)[]) {
   return ids.filter(Boolean).join(" ") || undefined;
@@ -406,12 +483,15 @@ function StackLanguages({
     entries.some((entry) => entry.language === "typescript") &&
     entries.some((entry) => entry.language === "javascript");
   const hintId = `${side}-shared-manifest`;
+  const errorId = error ? `${fieldId(fieldName)}-error` : undefined;
+  const describedByIds = describedBy(sharesManifest && hintId, errorId);
 
   return (
     <fieldset
       id={fieldId(fieldName)}
       tabIndex={-1}
-      aria-describedby={describedBy(sharesManifest && hintId, error && `${fieldId(fieldName)}-error`)}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={describedByIds}
     >
       <legend>{side === "ui" ? UI_TEXT.legends.uiLanguages : UI_TEXT.legends.backendLanguages}</legend>
       {languages.map((language) => {
@@ -421,8 +501,11 @@ function StackLanguages({
             <div className="field">
               <label>
                 <input
+                  id={`${fieldId(fieldName)}-${language}`}
                   type="checkbox"
                   checked={entry !== undefined}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={describedByIds}
                   onChange={(event) => onToggle(language, event.target.checked)}
                 />{" "}
                 {`${STACK_SIDE_LABELS[side]} ${LANGUAGE_LABELS[language]}`}
@@ -571,6 +654,16 @@ function UiFrameworks({
   );
 }
 
+export function commitPreparedRequirementChange(
+  current: ProjectConfig,
+  draft: RequirementDraft,
+  prepared: PreparedRequirementChange,
+): ProjectConfig {
+  const next = applyRequirementChange(requirementsOf(current), draft, prepared);
+  if (!next) return current;
+  return normalizeSelections({ ...current, requirementsContent: next });
+}
+
 export default function RequirementsBuilder({ templates }: { templates: Templates }) {
   const [config, setConfig] = useState<ProjectConfig>(defaultConfig);
   const [errors, setErrors] = useState<ValidationErrors>({});
@@ -583,6 +676,16 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const copyGeneration = useRef(0);
   const keepEditsRef = useRef<HTMLButtonElement>(null);
   const downloadCount = useRef(0);
+  const startNewCancelRef = useRef<HTMLButtonElement>(null);
+  const startNewReturnRef = useRef<HTMLElement | null>(null);
+  const storage = useSyncExternalStore(subscribeBrowserStorage, readBrowserStorage, unresolvedBrowserStorage);
+  const { ready, generation, draft: recoveredDraft, lastSave, schedule, reset, acceptsGeneration } = useDraftRecovery(storage);
+  const [appliedGeneration, setAppliedGeneration] = useState(0);
+  const [analysis, setAnalysis] = useState<RecoveredAnalysis>(null);
+  const [writing, setWriting] = useState<RecoveredWriting>(null);
+  const [startNewConfirming, setStartNewConfirming] = useState(false);
+  const [resetStorageFailed, setResetStorageFailed] = useState(false);
+  const integrationAdvisory = evaluateAdvisories(config).find((advisory) => advisory.field === "integrationTests");
 
   const update = <K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]) =>
     setConfig((current) => ({ ...current, [key]: value }));
@@ -614,8 +717,10 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const toggleUiFramework = (framework: UiFrameworkId, checked: boolean) =>
     setConfig((current) => {
       const without = current.uiFrameworks.filter((entry) => entry.framework !== framework);
+      const selectDefaultLanguage = checked && current.uiFrameworks.length === 0 && current.uiLanguages.length === 0;
       return normalizeSelections({
         ...current,
+        uiLanguages: selectDefaultLanguage ? [defaultToolchain("typescript")] : current.uiLanguages,
         uiFrameworks: checked ? [...without, defaultUiFramework(framework)] : without,
       });
     });
@@ -657,7 +762,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     if (hasErrors(nextErrors)) {
       setPending(null);
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
-      if (firstInvalid) document.getElementById(fieldId(firstInvalid))?.focus();
+      if (firstInvalid) focusInvalid(firstInvalid);
       return;
     }
 
@@ -794,7 +899,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     });
     if (hasErrors(nextErrors)) {
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
-      if (firstInvalid) document.getElementById(fieldId(firstInvalid))?.focus();
+      if (firstInvalid) focusInvalid(firstInvalid);
     }
   }
 
@@ -806,6 +911,80 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const activePending =
     pending && configsMatch(config, pending.config) && markdown === pending.markdown ? pending : null;
   const canRestore = edited;
+  if (ready && appliedGeneration !== generation) {
+    setAppliedGeneration(generation);
+    if (recoveredDraft) {
+      setConfig(recoveredDraft.config);
+      setMarkdown(recoveredDraft.output.markdown);
+      setAssembled(recoveredDraft.output.assembled);
+      setErrors({});
+      setAssemblyError("");
+      setPending(null);
+      setCopyStatus("idle");
+      setConfigFileNotice(null);
+      setStartNewConfirming(false);
+      setAnalysis(recoveredDraft.analysis);
+      setWriting(recoveredDraft.writing);
+    } else if (appliedGeneration !== 0) {
+      setConfig(defaultConfig);
+      setMarkdown("");
+      setAssembled(null);
+      setErrors({});
+      setAssemblyError("");
+      setPending(null);
+      setCopyStatus("idle");
+      setConfigFileNotice(null);
+      setAnalysis(null);
+      setWriting(null);
+    }
+  }
+  const persistenceReady = ready && appliedGeneration === generation;
+  const saveNotice = storage === null ? UI_TEXT.draftRecovery.unavailable : recoveryStatusText(lastSave);
+  const showResetFailure = resetStorageFailed && lastSave?.status !== "saved";
+
+  useEffect(() => {
+    if (!persistenceReady) return;
+    schedule(toRecoveryDraft(config, markdown, assembled, analysis, writing), generation);
+  }, [persistenceReady, schedule, config, markdown, assembled, analysis, writing, generation]);
+
+  useEffect(() => {
+    if (!startNewConfirming) return;
+    startNewCancelRef.current?.focus();
+    return () => {
+      const target = startNewReturnRef.current;
+      startNewReturnRef.current = null;
+      if (target?.isConnected) target.focus();
+    };
+  }, [startNewConfirming]);
+
+  const reportAnalysis = useCallback(
+    (next: RecoveredAnalysis, reportedGeneration: number) => {
+      if (!acceptsGeneration(reportedGeneration)) return;
+      setAnalysis((current) => (sameAnalysis(current, next) ? current : next));
+    },
+    [acceptsGeneration],
+  );
+
+  const reportWriting = useCallback(
+    (next: RecoveredWriting, reportedGeneration: number) => {
+      if (!acceptsGeneration(reportedGeneration)) return;
+      setWriting((current) => (sameWriting(current, next) ? current : next));
+    },
+    [acceptsGeneration],
+  );
+
+  function openStartNew(trigger: HTMLElement) {
+    if (!persistenceReady) return;
+    startNewReturnRef.current = trigger;
+    setStartNewConfirming(true);
+  }
+
+  function confirmStartNew() {
+    if (!persistenceReady) return;
+    const result = reset();
+    setStartNewConfirming(false);
+    setResetStorageFailed(result.storage !== "cleared");
+  }
 
   useEffect(() => {
     if (!edited) return;
@@ -826,26 +1005,40 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     <div className="layout">
       <section className="configuration" aria-labelledby="configuration-heading">
         <h2 id="configuration-heading">{UI_TEXT.configurationHeading}</h2>
+        {saveNotice && (
+          <p role="status" className="notice">
+            {saveNotice}
+          </p>
+        )}
+        {showResetFailure && (
+          <p role="alert" className="error">
+            {UI_TEXT.draftRecovery.resetFailed}
+          </p>
+        )}
         <form onSubmit={handleSubmit} noValidate aria-label={UI_TEXT.configurationFormLabel}>
         {TEXT_FIELDS.map((field) => {
           const id = fieldId(field.name);
           const error = errors[field.name];
+          const structured = requirementsOf(config).mode === "structured";
+          const preserved =
+            structured && (field.name === "businessRequirements" || field.name === "acceptanceCriteria");
+          const hint = preserved ? UI_TEXT.fields.structuredKept : field.hint;
           const commonProps = {
             id,
             name: field.name,
             value: config[field.name],
             maxLength: field.maxLength,
-            "aria-required": field.required,
+            "aria-required": field.required && !preserved ? true : undefined,
             "aria-invalid": error ? true : undefined,
-            "aria-describedby": describedBy(field.hint && `${id}-hint`, error && `${id}-error`),
+            "aria-describedby": describedBy(hint && `${id}-hint`, error && `${id}-error`),
           };
 
           return (
             <div className="field" key={field.name}>
               <label htmlFor={id}>{field.label}</label>
-              {field.hint && (
+              {hint && (
                 <span id={`${id}-hint`} className="hint">
-                  {field.hint}
+                  {hint}
                 </span>
               )}
               {field.multiline ? (
@@ -857,6 +1050,14 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             </div>
           );
         })}
+        <RequirementsEditor
+          config={config}
+          error={errors.requirementsContent}
+          itemErrors={requirementsItemErrors(config)}
+          onChange={(content: RequirementsContent) =>
+            setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
+          }
+        />
 
         <fieldset>
           <legend>{UI_TEXT.legends.mode}</legend>
@@ -988,18 +1189,28 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         <fieldset>
           <legend>{UI_TEXT.legends.testing}</legend>
           <p className="hint">{UI_TEXT.hints.testingAlwaysIncluded}</p>
-          {NON_API_MODULES.map((key) => (
-            <div className="field" key={key}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={config.modules[key]}
-                  onChange={(event) => updateModule(key, event.target.checked)}
-                />{" "}
-                {OPTIONAL_MODULE_LABELS[key]}
-              </label>
-            </div>
-          ))}
+          {NON_API_MODULES.map((key) => {
+            const advisory = key === "integrationTests" ? integrationAdvisory : undefined;
+            return (
+              <div className="field" key={key}>
+                <label>
+                  <input
+                    id={key === "integrationTests" ? "field-integrationTests" : undefined}
+                    type="checkbox"
+                    checked={config.modules[key]}
+                    aria-describedby={advisory ? `advisory-${advisory.id}` : undefined}
+                    onChange={(event) => updateModule(key, event.target.checked)}
+                  />{" "}
+                  {OPTIONAL_MODULE_LABELS[key]}
+                </label>
+                {advisory && (
+                  <p id={`advisory-${advisory.id}`} className="hint">
+                    {UI_TEXT.advisories.recommendationPrefix} {advisory.message}
+                  </p>
+                )}
+              </div>
+            );
+          })}
 
           <div className="field">
             <label>
@@ -1071,7 +1282,52 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             {UI_TEXT.assemblyFailed(assemblyError)}
           </p>
         )}
+        <div className="actions">
+          <button
+            type="button"
+            className="secondary"
+            disabled={!persistenceReady || startNewConfirming}
+            onClick={(event) => openStartNew(event.currentTarget)}
+          >
+            {UI_TEXT.buttons.startNewProject}
+          </button>
+        </div>
+        {startNewConfirming && (
+          <div
+            className="confirm"
+            role="region"
+            aria-labelledby="start-new-heading"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              setStartNewConfirming(false);
+            }}
+          >
+            <h3 id="start-new-heading">{UI_TEXT.draftRecovery.startHeading}</h3>
+            <p>{UI_TEXT.draftRecovery.startBody}</p>
+            <div className="actions">
+              <button type="button" className="secondary" ref={startNewCancelRef} onClick={() => setStartNewConfirming(false)}>
+                {UI_TEXT.buttons.cancel}
+              </button>
+              <button type="button" onClick={confirmStartNew}>
+                {UI_TEXT.buttons.clearProject}
+              </button>
+            </div>
+          </div>
+        )}
         </form>
+        <RequirementsAnalysis
+          config={config}
+          resetGeneration={generation}
+          recoveredAnalysis={analysis}
+          onAnalysisChange={reportAnalysis}
+          recoveredWriting={writing}
+          onWritingChange={reportWriting}
+          onApplyPrepared={(draft: RequirementDraft, prepared: PreparedRequirementChange) => {
+            if (!acceptsGeneration(generation)) return;
+            setConfig((current) => commitPreparedRequirementChange(current, draft, prepared));
+          }}
+        />
       </section>
 
       <section className="output" aria-labelledby="preview-heading">

@@ -31,6 +31,20 @@ describe("configsMatch", () => {
     expect(configsMatch(java, { ...java, backendLanguages: [defaultToolchain("java")] })).toBe(true);
   });
 
+  it("detects a structured requirement change and treats a missing field as free text", () => {
+    const removed = { ...sample };
+    delete removed.requirementsContent;
+    expect(configsMatch(sample, removed)).toBe(true);
+    const changed = {
+      ...sample,
+      requirementsContent: {
+        ...sample.requirementsContent!,
+        mode: "structured" as const,
+      },
+    };
+    expect(configsMatch(sample, changed)).toBe(false);
+  });
+
   it("detects a module flag change", () => {
     expect(configsMatch(sample, { ...sample, modules: { ...sample.modules, persistence: true } })).toBe(false);
   });

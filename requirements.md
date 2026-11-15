@@ -118,7 +118,7 @@ Fast Mode should produce a useful draft with only a few interactions. It must **
 
 - **Language:** Separate UI and backend selections. Backend languages are Java, Python, TypeScript, JavaScript, and Other. UI languages are TypeScript, JavaScript, and Other, and they appear only for a Web App. Several languages may be checked on one side. Do not conflate a language with a runtime.
 - **Runtime/backend:** Offer Node.js only when the backend includes JavaScript or TypeScript. A UI language does not offer the Node.js runtime. The form still stores one backend framework.
-- **Frontend:** Only show for a Web App. Offer Next.js and React + Vite as checkboxes, so both can be selected. Next.js uses the App Router. React + Vite offers React Router, TanStack Router, or no router. Both offer client state (None, Redux Toolkit, Zustand, or React context) and server data (None or TanStack Query). A Web App can also include backend languages and one backend framework, so a full-stack application is one configuration. Avoid presenting a separate browser UI requirement for a pure API or CLI.
+- **Frontend:** Only show for a Web App. Offer Next.js and React + Vite as checkboxes, so both can be selected. Checking the first UI framework selects TypeScript, which the user can change. A Web App with a UI framework and no UI language cannot be assembled until a language is selected. Other still counts as a language and keeps its open question. Next.js uses the App Router. React + Vite offers React Router, TanStack Router, or no router. Both offer client state (None, Redux Toolkit, Zustand, or React context) and server data (None or TanStack Query). A Web App can also include backend languages and one backend framework, so a full-stack application is one configuration. Avoid presenting a separate browser UI requirement for a pure API or CLI.
 - **Coverage:** Offer simple optional numeric targets for statement/line and branch coverage. Suggested initial values (e.g., 85% line, 80% branch) may be changed or disabled. Generated docs should emphasize functional/business-logic verification and clear exclusions for generated code and configuration, not encourage gaming the numbers.
 - **Dependency/build tooling:** Each checked language stores its own package manager and toolchain. JavaScript and TypeScript on the same side share package manager, Node.js version, test runner, and linter because they share one manifest. The UI and backend sides do not share a manifest. Never generate commands for an unsupported configuration. Defaults are Yarn, Maven, and uv.
 
@@ -161,7 +161,7 @@ Initial modules:
 - Selected modules may not be silently omitted or rewritten to remove mandatory requirements.
 - The UI must disable or flag incompatible combinations (e.g., Maven-only rules with Python).
 - Distinguish language, runtime, framework, and dependency manager as separate concepts in configuration. Node.js is a runtime; do not present it as a language.
-- Show UI framework choices only for a Web App. Next.js and React + Vite can both be checked, and each stores its own options. Do not require a UI framework for backend or CLI projects. A Web App may include a backend in the same configuration.
+- Show UI framework choices only for a Web App. Next.js and React + Vite can both be checked, and each stores its own options. Do not require a UI framework for backend or CLI projects. A Web App may include a backend in the same configuration. When that Web App also includes an HTTP backend and integration tests are off, show a recommendation to enable them. The recommendation must not change the checkbox, block assembly, or appear in the generated document.
 - Store the selected package manager, language version, test runner, and linter on each checked language. Defaults are Maven for Java, uv for Python, and Yarn for JavaScript and TypeScript. JavaScript and TypeScript on one side share the package manager and the other manifest-level choices. UI and backend copies of the same language are separate packages.
 - Keep optional coverage thresholds configurable; defaults should be guidance, not misleading guarantees of correctness. Include meaningful tests for critical business logic even when coverage numbers are met.
 - Only show OpenAPI/Postman as relevant when an API surface exists; do not assume every app needs an API.
@@ -188,32 +188,43 @@ Assemble sections in a consistent order, omitting sections that do not apply:
 13. Definition of Done.
 14. Included module versions and optional AI-review notes.
 
-Use clear, imperative, testable language. Distinguish **user-provided requirements**, **selected module requirements**, and **AI suggestions** where feasible.
+Use clear, imperative, testable language. Distinguish **user-provided requirements**, **selected module requirements**, and **AI suggestions** where feasible. Free-text requirements remain available and keep the heading "User-provided requirements". Structured mode writes only confirmed functional requirements and acceptance criteria into the document, under "Confirmed functional requirements" and "Confirmed acceptance criteria". Project-wide criteria apply to the whole project and do not cover a specific functional requirement. Requirement-specific criteria reference one or more functional requirements. Deleting a functional requirement keeps its criteria, removes references to that requirement, and makes a criterion project-wide when its last reference is removed. Proposed items stay in the configuration and are not written into the document. Incomplete proposed text does not block assembly of valid confirmed requirements.
 
 ## 8. AI review behavior
 
 ### 8.1 API and workflow
 
-- AI is **opt-in**, invoked by a dedicated button after deterministic assembly.
-- The server-side route owns the model credential; never expose API secrets to client bundles or logs.
-- Send only the minimum required document content; display a concise notice that the selected content will be transmitted to the configured provider.
-- Request structured output such as `issues[]`, `questions[]`, `suggestedChanges[]`, and `proposedMarkdown`.
-- Check parsed response against a schema; report malformed output without damaging the user's draft.
-- Treat the document and user business requirements as untrusted task data for the model; prohibit instructions embedded within them from changing the application's workflow.
-- AI must not silently invent features, remove selected standards, or claim external facts have been verified.
-- The user can reject the AI proposal and keep the original document.
-- On LLM timeout, unavailable key, provider failure, or rate limit, deterministic assembly, editing, copy, and export remain fully usable.
+- AI analysis is opt-in. It stays off unless `AI_REVIEW_ENABLED` is exactly `true` and the server has a provider, model, and API key.
+- The user starts it with Analyze requirements with AI. It is not part of Assemble Draft, and it does not require a generated document.
+- The first send in a page session asks for confirmation and names what will be sent. Cancel sends nothing.
+- The server-side route owns the model credential. The key is not sent to the browser, logged, or written into the configuration file.
+- The request body is the current configuration, limited to 64 KB. The server rebuilds the model input and ignores any client-supplied prompt. User requirements are untrusted data, not instructions to the model.
+- The model returns advisory findings only. It does not change the description, free-text fields, confirmed or proposed requirements, criterion links, technology choices, or the Markdown document.
+- The application checks the response against its schema. A missing field, extra field, unknown requirement id, or over-length explanation, question, suggested action, or uncertainty rejects the whole response. The application does not truncate that text.
+- An empty finding list is a successful response. It does not mean the requirements have been proven complete or correct. The page says: "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct."
+- Results stay in the page. They are not stored in the configuration or the exported JSON. Editing the form marks them as not matching the current requirements. A late or out-of-order response does not replace a newer analysis.
+- On timeout, a disabled or missing key, provider failure, an invalid response, or the local rate limit, deterministic assembly, editing, copy, and export remain usable.
+- An enabled endpoint is not authenticated. Do not expose it on the public internet. The in-memory limit of 10 requests per 10 minutes is only for local or private development. It is not sufficient protection for a public deployment, and this stage does not add an authentication system.
+- The user can record a review decision and a clarification answer without changing a requirement. The answer is kept exactly for the current page session, with the analysis run and finding it belongs to. It is not written into the configuration. It is sent to the writing model only after the user confirms that it still applies to the current requirements. The checked fingerprint is a consistency and staleness safeguard. It is not proof of identity and it is not an access-control mechanism.
+- The user can apply one explicit requirement change from a matching analysis while structured requirements are on. The suggested action is reference material. The user writes the requirement text. A new item has source user and status proposed. A proposed item can be updated after a preview. A confirmed item keeps its text until a separate confirmation says the authoritative requirement will change. The identifier and source stay the same.
+- When the analysis no longer matches the current requirements, findings and answers remain visible and no change can be applied until the user runs analysis again.
+- Confirming a requirement for the document remains the structured editor status control. Applying a change does not confirm it.
+- Draft requirements with AI proposes functional requirements, acceptance criteria, revisions, and unresolved questions. It does not confirm a requirement, switch modes, or change the assembler. A new accepted item has source AI and status proposed.
+- A free-text draft remains usable after Copy current text or Start with an empty list when the original source facts are unchanged. The original free-text fields stay exact. Suggestions are not confirmed automatically.
+- The writing route checks each submitted clarification fingerprint itself. A client flag cannot make a stale answer model input. The server does not store the review session, so the check cannot prove that the answer text came from the original analysis.
+- Nested acceptance criteria stay with the parent suggestion until that parent is accepted. The parent preview lists them and states that applying the parent does not add or confirm them. After the parent is added, the writing panel names the new identifiers and groups those suggestions under the new functional requirement. A criterion preview shows its scope and linked requirement. Real functional and acceptance identifiers are assigned only when each item is accepted. A pending criterion whose linked requirement was deleted is refused rather than retargeted.
 
-### 8.2 AI review prompts should ask for
+### 8.2 AI analysis looks for
 
-- Missing or ambiguous requirements and assumptions.
-- Contradictions between business requirements and selected modules.
-- Missing measurable acceptance criteria.
-- Appropriate boundary/negative test cases.
-- Unnecessary infrastructure for the requested scope.
-- A proposed implementation order emphasizing a runnable first slice.
+- Missing functional detail, ambiguity, and contradictions between requirements.
+- Contradictions with the selected technology.
+- Missing error handling or edge cases.
+- Acceptance criteria that are missing or not specific enough to test.
+- Unspecified external services, data, or APIs.
+- Security, privacy, or authorization gaps when the requirements make them relevant.
+- Accessibility, reliability, performance, or observability only when they would change the implementation.
 
-The builder is an assistant to the engineer, **not an autonomous authority** for final requirements.
+The analysis should skip generic advice, should not invent product facts, and should not treat a proposed item as approved. The builder remains an assistant to the engineer, not an authority for the final requirements.
 
 ## 9. Golden test data and verification
 

@@ -11,6 +11,9 @@ export const UI_TEXT = {
     businessRequirementsHint: "Inserted into the document exactly as written.",
     acceptanceCriteria: "Acceptance criteria (optional)",
     acceptanceCriteriaHint: "If left empty, the document lists this as an open question.",
+    structuredKept:
+      "The original business requirements and acceptance criteria stay in the form and are left out of the document while structured requirements are on.",
+    proposedKept: "Proposed items stay in this form and are not written into the document.",
     stretchGoals: "Stretch goals (optional)",
     stretchGoalsHint: "Goals to attempt only after all must-have requirements are verified.",
     applicationType: "Application type",
@@ -31,6 +34,7 @@ export const UI_TEXT = {
     backendLanguages: "Backend languages",
     apiDocumentation: "API documentation",
     testing: "Testing and quality",
+    structuredRequirements: "Structured requirements",
     configurationFile: "Configuration file",
   },
   hints: {
@@ -56,6 +60,25 @@ export const UI_TEXT = {
     restoreDraft: "Restore draft",
     exportConfiguration: "Export configuration",
     importConfiguration: "Import configuration",
+    useStructuredRequirements: "Use structured requirements",
+    returnToFreeText: "Return to free-text requirements",
+    copyCurrentText: "Copy current text",
+    startEmptyStructured: "Start with an empty list",
+    cancel: "Cancel",
+    startNewProject: "Start new project",
+    clearProject: "Clear project",
+    addFunctionalRequirement: "Add functional requirement",
+    addProjectCriterion: "Add project-wide criterion",
+    addRequirementCriterion: "Add requirement criterion",
+    removeItem: (id: string) => `Remove ${id}`,
+  },
+  requirementStatus: {
+    confirmed: "Confirmed",
+    proposed: "Proposed",
+  },
+  criterionScope: {
+    project: "Project-wide",
+    requirement: "Requirement-specific",
   },
   configFile: {
     imported: "Imported the configuration. Assemble again to update the document.",
@@ -75,9 +98,23 @@ export const UI_TEXT = {
     stale: "The configuration has changed since this document was assembled.",
     edited: "This document includes manual edits.",
   },
+  draftRecovery: {
+    startHeading: "Start a new project?",
+    startBody:
+      "This clears the configuration, the Markdown document, and the AI review and writing work on this page. The saved draft in this tab is removed. The download count is kept.",
+    resetFailed:
+      "The saved project could not be removed from this tab. Refresh may bring it back until a new draft is saved.",
+    unavailable: "The latest change could not be saved in this tab. A refresh may show an older copy.",
+    partial: "The latest change was only partly saved in this tab. A refresh may not include all of it.",
+  },
   copy: {
     success: "Copied the current Markdown.",
     failure: "Could not copy the Markdown. Select the preview and copy it manually.",
+  },
+  advisories: {
+    recommendationPrefix: "Recommendation:",
+    integrationTestsHttpFullStack:
+      "This Web App includes a UI and an HTTP backend. Integration tests are recommended so the UI and API are verified together. You can assemble the document without enabling them.",
   },
   assemblyFailed: (message: string) => `Assembly failed: ${message}`,
   confirm: {
@@ -86,6 +123,162 @@ export const UI_TEXT = {
     replaceBody: "Reassemble replaces this document with a new draft from the current configuration.",
     restoreBody: "This discards manual edits and restores the last document assembled from the form.",
     restoreStale: "The restored draft matches the last assembly, not the current configuration.",
+    structuredHeading: "Use structured requirements?",
+    structuredBody:
+      "The original text stays in the form and is left out of the document. Copy it into one functional requirement and one project-wide acceptance criterion, or start with an empty list.",
+    removeHeading: (id: string) => `Remove ${id}?`,
+    removeLinkedBody: (requirementId: string, criterionIds: string, singular: boolean) =>
+      singular
+        ? `${criterionIds} will remain. Its reference to ${requirementId} will be removed. If it loses its last reference, it becomes project-wide.`
+        : `${criterionIds} will remain. Their references to ${requirementId} will be removed. A criterion that loses its last reference becomes project-wide.`,
+  },
+  analysis: {
+    heading: "AI requirements analysis",
+    intro:
+      "Analysis is optional and stays off until the server enables it. An enabled endpoint is not authenticated and must not be exposed on the public internet. The local request limit is not protection for a public deployment. Findings are advisory. A finding does not change the form or the document until you explicitly apply a proposed requirement change.",
+    analyze: "Analyze requirements with AI",
+    analyzeAgain: "Analyze again",
+    working: "Analyzing requirements.",
+    advisory: "These findings are advisory. They are not requirements and were not applied.",
+    noFindings:
+      "The AI analysis did not identify any issues. This does not guarantee the requirements are complete or correct.",
+    stale: "This analysis does not match the current requirements.",
+    related: (ids: string) => `Related requirements: ${ids}`,
+    question: (text: string) => `Question: ${text}`,
+    suggestedAction: (text: string) => `Suggested action: ${text}`,
+    uncertainty: (text: string) => `Uncertainty: ${text}`,
+    confirmHeading: "Send requirements for AI analysis?",
+    confirmBody:
+      "The project name, description, active requirements, and selected technology choices will be sent to the configured AI provider. Nothing in the form or the document is changed.",
+    send: "Send for analysis",
+    categories: {
+      missing_detail: "Missing detail",
+      ambiguity: "Ambiguity",
+      contradiction: "Contradiction",
+      stack_conflict: "Stack conflict",
+      error_handling: "Error handling",
+      acceptance_criteria: "Acceptance criteria",
+      external_dependency: "External dependency",
+      security_privacy: "Security or privacy",
+      nonfunctional: "Nonfunctional",
+    },
+    severities: {
+      high: "High",
+      medium: "Medium",
+      low: "Low",
+    },
+    errors: {
+      unavailable: "AI analysis is turned off on the server. Your requirements were not changed.",
+      "too-large": "The requirements are too large to analyze. Your requirements were not changed.",
+      "invalid-request": "The analysis request was not valid. Your requirements were not changed.",
+      timeout: "The analysis request timed out. Your requirements were not changed.",
+      provider: "The analysis service did not respond. Your requirements were not changed.",
+      "invalid-response": "The analysis response was not usable. Your requirements were not changed.",
+    "rate-limited":
+      "Too many analysis requests were made from this server. Wait and try again. This limit is only for local use and is not public protection. Your requirements were not changed.",
+    },
+    groups: {
+      clarification: "Clarification questions",
+      contradiction: "Contradictions or risks",
+      enhancement: "Proposed enhancements",
+    },
+    decisions: {
+      open: "Needs review",
+      addressed: "Addressed",
+      dismissed: "Dismissed",
+      deferred: "Deferred",
+    },
+    decisionLabel: (id: string, decision: string) => `${id} decision: ${decision}`,
+    reviewSummary: (open: number, deferred: number, addressed: number, dismissed: number) =>
+      `${open} still need review. ${deferred} deferred. ${addressed} addressed. ${dismissed} dismissed.`,
+    markAddressed: (id: string) => `Mark ${id} addressed`,
+    dismiss: (id: string) => `Dismiss ${id}`,
+    defer: (id: string) => `Defer ${id}`,
+    answerLabel: (id: string) => `Answer for ${id}`,
+    saveAnswer: (id: string) => `Save answer for ${id}`,
+    answerSaved: "Answer saved.",
+    answerTooLong: "The answer is too long to save.",
+    referenceOnly: "Reference only. This is not copied into a requirement.",
+    proposeChange: (id: string) => `Propose a requirement change for ${id}`,
+    structuredRequired:
+      "Use structured requirements before proposing a change. The original business requirements and acceptance criteria stay in the form.",
+    staleBlocked: "Run analysis again before applying a change from these findings.",
+    changeLabel: (id: string) => `Requirement change for ${id}`,
+    createFunctional: "Create a functional requirement",
+    createCriterion: "Create an acceptance criterion",
+    updateFunctional: "Update a functional requirement",
+    updateCriterion: "Update an acceptance criterion",
+    targetLabel: (id: string) => `Target for ${id}`,
+    scopeLabel: (id: string) => `Scope for ${id}`,
+    proposedText: (id: string) => `Proposed requirement text for ${id}`,
+    previewChange: (id: string) => `Preview change for ${id}`,
+    previewId: "Identifier",
+    previewSource: "Source",
+    previewStatus: "Status",
+    previewScope: "Scope",
+    previewLinks: "Linked functional requirements",
+    previewNoLinks: "None",
+    previewProposedText: "Proposed text",
+    previewCurrentText: "Current authoritative text",
+    replacesAuthoritative: (id: string) => `This replaces the authoritative text of ${id}.`,
+    previewStale: "The requirements changed after this preview. Preview the change again before applying it.",
+    applyRejected:
+      "This change was not applied. The requirements changed after the preview. Preview the change again before applying it.",
+    sources: {
+      user: "User",
+      ai: "AI",
+    },
+    applyChange: (id: string) => `Apply this proposed change for ${id}`,
+    changeInvalid: "The requirement change is not valid. Check the text, the target, and the criterion links.",
+    suggestedReplacement: (id: string) => `Suggested replacement for ${id}. The confirmed text has not changed.`,
+    authoritativeHeading: (id: string) => `Replace the authoritative text of ${id}?`,
+    authoritativeBody:
+      "The identifier and source stay the same. The new text becomes the confirmed requirement and will be included the next time you assemble.",
+    authoritativeReplace: (id: string) => `Replace the authoritative text of ${id}`,
+    proposedPreview: (id: string) =>
+      `${id} stays out of the document until you confirm it in the structured requirements editor.`,
+    appliedNote: (id: string) => `A change was applied to ${id}.`,
+    rerunHeading: "Run analysis again?",
+    rerunBody: "Decisions and answers for this analysis will be discarded. Requirements you already added stay in the form.",
+    rerunContinue: "Discard review and analyze",
+    answerKept:
+      "This answer is kept for review. It is not sent to the model until you confirm it still applies to the current requirements.",
+    useAnswer: "Use this answer for the current requirements",
+  },
+  writing: {
+    heading: "AI requirements writing",
+    intro:
+      "Writing is optional. It drafts proposed requirements from the current project information. A draft does not change the form or the document until you add a suggestion.",
+    draft: "Draft requirements with AI",
+    working: "Drafting requirements.",
+    confirmHeading: "Send requirements for AI writing?",
+    confirmBody:
+      "The project name, description, active requirements, selected technology choices, and answers that still match those requirements will be sent to the configured AI provider. Nothing in the form or the document is changed.",
+    send: "Send for writing",
+    stale: "This draft is out of date because the requirements it was based on changed. Draft again before adding a suggestion.",
+    copyTransition:
+      "Copy current text makes the exact business requirements a confirmed user requirement. Non-blank acceptance text becomes a confirmed project-wide user criterion. Those copied items can appear in the document. The original free-text fields stay unchanged and are left out of the document while structured requirements are on. AI suggestions stay proposed until you add and later confirm each one.",
+    emptyTransition:
+      "Start with an empty list creates no structured requirement. The original free-text fields stay unchanged and do not become the document source. Nothing is authoritative until you add a suggestion and later confirm it in the structured requirements editor.",
+    transitionHint: "Use the structured requirements controls above. This draft is not sent to the model again.",
+    duplicate: "This suggestion matches an existing requirement, so it was not added.",
+    missingLink: "The linked requirement is gone. This criterion cannot be added.",
+    preview: (id: string) => `Preview ${id}`,
+    dismiss: (id: string) => `Dismiss ${id}`,
+    textLabel: (id: string) => `Suggested text for ${id}`,
+    nestedTextLabel: (id: string, index: number) => `Nested criterion ${index + 1} for ${id}`,
+    nestedRemain: (id: string) =>
+      `Applying this suggestion creates only ${id} as a proposed functional requirement. These nested acceptance criteria stay as separate suggestions linked to ${id}. Preview and apply each one on its own. None of them is added or confirmed automatically.`,
+    detachedCriteria: (functionalId: string, suggestionIds: readonly string[]) =>
+      `${functionalId} was added as a proposed functional requirement. Its acceptance criteria remain individual suggestions: ${suggestionIds.join(", ")}. They are grouped under ${functionalId}. Preview and apply each one. None of them is added or confirmed automatically.`,
+    criteriaFor: (functionalId: string) => `Acceptance criteria for ${functionalId}`,
+    questions: "Unresolved questions",
+    newRequirements: "Proposed functional requirements",
+    revisions: "Proposed revisions",
+    criteria: "Proposed acceptance criteria",
+    withheld: "Kept for review and not sent with this draft.",
+    provenance: "AI proposal",
+    notConfirmed: "Proposed. It stays out of the document until you confirm it in the structured requirements editor.",
   },
 } as const;
 
@@ -102,6 +295,7 @@ export const VALIDATION_TEXT = {
   nodeRuntime: "The Node.js runtime requires TypeScript or JavaScript on the backend.",
   uiLanguagesOnlyWebApp: "UI languages apply only to Web App projects.",
   uiLanguages: "UI language options must match the supported choices.",
+  uiLanguageRequired: "Select a UI language for the selected UI framework.",
   backendLanguages: "Backend language options must match the supported choices.",
   springBoot: "Spring Boot requires Java and an HTTP API.",
   fastapi: "FastAPI requires Python and an HTTP API.",
@@ -111,4 +305,14 @@ export const VALIDATION_TEXT = {
   apiModulesRequireApi: "Swagger/OpenAPI and Postman require an HTTP API.",
   lineCoverage: "Line coverage target must be a whole number from 0 to 100.",
   branchCoverage: "Branch coverage target must be a whole number from 0 to 100.",
+  structuredRequirementRequired: "Add a confirmed functional requirement, or return to free-text requirements.",
+  structuredTextRequired: (id: string) => `${id} needs text.`,
+  structuredTextTooLong: (id: string, max: number) => `${id} must be ${max} characters or fewer.`,
+  projectCriterionHasLinks: (id: string) => `${id} is project-wide and cannot reference a functional requirement.`,
+  requirementCriterionNeedsLink: (id: string) => `${id} must reference at least one functional requirement.`,
+  criterionMissingRequirement: (id: string, requirementId: string) => `${id} references ${requirementId}, which does not exist.`,
+  duplicateStructuredId: (id: string) => `${id} is used more than once.`,
+  invalidStructuredId: (id: string) =>
+    id.length > 0 ? `${id} is not a valid identifier.` : "A structured item is missing an identifier.",
+  duplicateCriterionLink: (id: string, requirementId: string) => `${id} lists ${requirementId} more than once.`,
 } as const;

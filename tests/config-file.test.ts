@@ -12,6 +12,12 @@ import {
 } from "../lib/config-file";
 import { loadTemplates } from "../lib/load-templates";
 import { moduleVersionMap } from "../lib/module-registry";
+import {
+  addAcceptanceCriterion,
+  addFunctionalRequirement,
+  removeFunctionalRequirement,
+  updateAcceptanceCriterion,
+} from "../lib/requirements-content";
 import { normalizeSelections } from "../lib/selection-rules";
 import { defaultToolchain } from "../lib/toolchain";
 import { defaultUiFramework } from "../lib/ui-framework";
@@ -69,12 +75,54 @@ describe("configuration file", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.value.config.uiFrameworks).toEqual([defaultUiFramework("react-vite")]);
+    expect(parsed.value.config.uiLanguages).toEqual([]);
+    delete (file.config as { requirementsContent?: unknown }).requirementsContent;
+    const legacy = parseConfigText(JSON.stringify(file), versions);
+    expect(legacy.ok).toBe(true);
+    if (!legacy.ok) return;
+    expect(legacy.value.config.requirementsContent?.mode).toBe("free-text");
+
+    file.config.requirementsContent = { mode: "structured", nextFunctionalNumber: 1, nextCriterionNumber: 1, functionalRequirements: [], acceptanceCriteria: [{ id: "AC-001", scope: "requirement", requirementIds: ["FR-404"], text: "Missing", source: "user", status: "confirmed" }] };
+    expect(parseConfigText(JSON.stringify(file), versions)).toEqual({ ok: false, error: "invalid" });
+    delete file.config.requirementsContent;
 
     file.config.frontend = "no-preference";
     const unspecified = parseConfigText(JSON.stringify(file), versions);
     expect(unspecified.ok).toBe(true);
     if (!unspecified.ok) return;
     expect(unspecified.value.config.uiFrameworks).toEqual([]);
+  });
+
+  it("imports structured requirements after a linked functional requirement is deleted", () => {
+    let content = addFunctionalRequirement(defaultConfig.requirementsContent!, "Show the people list.");
+    content = addFunctionalRequirement(content, "Open a person.");
+    content = addAcceptanceCriterion(content, { scope: "requirement", text: "The list is visible.", requirementIds: ["FR-001"] });
+    content = addAcceptanceCriterion(content, {
+      scope: "requirement",
+      text: "Both pages work.",
+      requirementIds: ["FR-001", "FR-002"],
+    });
+    content = updateAcceptanceCriterion(content, "AC-001", { status: "proposed" });
+    content = {
+      ...content,
+      acceptanceCriteria: content.acceptanceCriteria.map((item) =>
+        item.id === "AC-001" ? { ...item, source: "ai" as const } : item,
+      ),
+    };
+    content = removeFunctionalRequirement(content, "FR-001");
+    const config = { ...defaultConfig, projectName: "People Directory", requirementsContent: content };
+    const parsed = parseConfigText(serializeConfig(config, versions), versions);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.config.requirementsContent).toMatchObject({
+      nextFunctionalNumber: 3,
+      nextCriterionNumber: 3,
+      functionalRequirements: [{ id: "FR-002", text: "Open a person." }],
+      acceptanceCriteria: [
+        { id: "AC-001", scope: "project", requirementIds: [], text: "The list is visible.", source: "ai", status: "proposed" },
+        { id: "AC-002", scope: "requirement", requirementIds: ["FR-002"], text: "Both pages work.", source: "user", status: "confirmed" },
+      ],
+    });
   });
 
   it("reports a template library change without changing the imported choices", () => {
