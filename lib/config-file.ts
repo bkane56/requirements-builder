@@ -85,6 +85,12 @@ export function parseConfigText(text: string, currentVersions: Record<string, st
   };
 }
 
+export function parseStoredProjectConfig(value: unknown): ProjectConfig | null {
+  const config = readConfig(value);
+  if (!config) return null;
+  return normalizeSelections(config);
+}
+
 function orderedVersions(versions: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.keys(versions).sort().map((key) => [key, versions[key]]));
 }

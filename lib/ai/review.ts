@@ -4,6 +4,7 @@ import {
   addFunctionalRequirement,
   formatRequirementId,
   normalizeRequirementsContent,
+  requirementIdNumber,
   updateAcceptanceCriterion,
   updateFunctionalRequirement,
   type AcceptanceCriterion,
@@ -13,7 +14,7 @@ import {
   type RequirementsContent,
   type RequirementStatus,
 } from "../requirements-content";
-import type { AnalysisCategory, AnalysisFinding } from "./analysis-schema";
+import { isAnalysisFindingId, type AnalysisCategory, type AnalysisFinding } from "./analysis-schema";
 
 export const REVIEW_DECISIONS = ["open", "addressed", "dismissed", "deferred"] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
@@ -160,6 +161,20 @@ export function clarificationAnswersForWriting(
   return answers;
 }
 
+export function parseReviewSession(value: unknown): ReviewSession | null {
+  if (!isRecord(value) || !sameKeys(value, ["requestId", "fingerprint", "records"])) return null;
+  if (!isPositiveInteger(value.requestId) || typeof value.fingerprint !== "string") return null;
+  if (!isRecord(value.records)) return null;
+  const records: Record<string, ReviewRecord> = {};
+  for (const [key, entry] of Object.entries(value.records)) {
+    const findingId = findingIdFromReviewKey(value.requestId, key);
+    const record = parseReviewRecord(entry);
+    if (!findingId || !record) return null;
+    records[key] = record;
+  }
+  return { requestId: value.requestId, fingerprint: value.fingerprint, records };
+}
+
 export function previewRequirementChange(
   content: RequirementsContent,
   draft: RequirementDraft,
@@ -265,6 +280,60 @@ export function applyRequirementChange(
   }
   if (draft.action === "update-functional") return updateFunctionalRequirement(content, draft.id, { text: preview.text });
   return updateAcceptanceCriterion(content, draft.id, { text: preview.text });
+}
+
+function parseReviewRecord(value: unknown): ReviewRecord | null {
+  if (!isRecord(value) || !includes(REVIEW_DECISIONS, value.decision)) return null;
+  for (const key of Object.keys(value)) {
+    if (key !== "decision" && key !== "answer" && key !== "applied" && key !== "answerCheckedFingerprint") return null;
+  }
+  const record: ReviewRecord = { decision: value.decision };
+  if (Object.hasOwn(value, "answer")) {
+    if (typeof value.answer !== "string" || value.answer.length > INPUT_LIMITS.longText) return null;
+    record.answer = value.answer;
+  }
+  if (Object.hasOwn(value, "applied")) {
+    const applied = parseAppliedChange(value.applied);
+    if (!applied) return null;
+    record.applied = applied;
+  }
+  if (Object.hasOwn(value, "answerCheckedFingerprint")) {
+    if (typeof value.answerCheckedFingerprint !== "string") return null;
+    record.answerCheckedFingerprint = value.answerCheckedFingerprint;
+  }
+  return record;
+}
+
+function parseAppliedChange(value: unknown): AppliedChange | null {
+  if (!isRecord(value) || !sameKeys(value, ["kind", "id"]) || typeof value.id !== "string") return null;
+  if (value.kind === "functional" && requirementIdNumber("FR", value.id) !== null) return { kind: "functional", id: value.id };
+  if (value.kind === "criterion" && requirementIdNumber("AC", value.id) !== null) return { kind: "criterion", id: value.id };
+  return null;
+}
+
+function findingIdFromReviewKey(requestId: number, key: string): string | null {
+  const prefix = `${requestId}:`;
+  if (!key.startsWith(prefix)) return null;
+  const findingId = key.slice(prefix.length);
+  if (!isAnalysisFindingId(findingId) || reviewKey(requestId, findingId) !== key) return null;
+  return findingId;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+function sameKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function includes<T extends string>(values: readonly T[], value: unknown): value is T {
+  return typeof value === "string" && (values as readonly string[]).includes(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function withRecord(session: ReviewSession, findingId: string, patch: Partial<ReviewRecord>): ReviewSession {

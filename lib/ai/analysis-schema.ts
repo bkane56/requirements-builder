@@ -150,6 +150,10 @@ export function formatFindingId(number: number): string {
   return `F-${String(number).padStart(3, "0")}`;
 }
 
+export function isAnalysisFindingId(id: unknown): id is string {
+  return typeof id === "string" && findingIdNumber(id) !== null;
+}
+
 function readFindings(
   value: unknown,
   knownIds: ReadonlySet<string> | null,

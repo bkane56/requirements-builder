@@ -31,6 +31,7 @@ export type WritingSuggestion =
       rationale: string;
       uncertainty: string | null;
       nestedCriteria: NestedCriterion[];
+      detachedIds?: string[];
     }
   | {
       id: string;

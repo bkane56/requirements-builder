@@ -333,6 +333,7 @@ describe("nested suggestion lifecycle", () => {
     };
     const linked = detachNestedCriteria(session(), "W-001", "FR-001");
     expect(linked?.acceptedIds).toEqual(["W-001"]);
+    expect(linked?.suggestions[0]).toMatchObject({ id: "W-001", detachedIds: ["W-002"] });
     expect(linked?.suggestions[1]).toMatchObject({ id: "W-002", kind: "new-criterion", requirementIds: ["FR-001"] });
     expect(content.acceptanceCriteria).toEqual([]);
     expect(criterionLinkMissing(content, linked!.suggestions[1]!)).toBe(false);
