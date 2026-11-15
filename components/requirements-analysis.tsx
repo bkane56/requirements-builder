@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { analysisFingerprint, buildAnalysisInput, decideAnalysisUpdate } from "@/lib/ai/analysis-input";
 import { readAnalysisResult, type AnalysisFinding, type AnalysisResult } from "@/lib/ai/analysis-schema";
 import {
   applyRequirementChange,
+  clarificationAnswersForWriting,
+  confirmAnswerForCurrentRequirements,
   emptyReviewSession,
   findingGroup,
   markReviewApplied,
@@ -25,6 +27,7 @@ import {
 import type { ProjectConfig } from "@/lib/config";
 import { requirementsOf, type CriterionScope, type RequirementsContent } from "@/lib/requirements-content";
 import { UI_TEXT } from "@/lib/ui-text";
+import { RequirementsWriter } from "./requirements-writer";
 
 const ANALYSIS_ERRORS = [
   "unavailable",
@@ -88,7 +91,9 @@ export function RequirementsAnalysis({
   const content = requirementsOf(config);
   const fingerprint = analysisFingerprint(buildAnalysisInput(config));
   const fingerprintRef = useRef(fingerprint);
-  fingerprintRef.current = fingerprint;
+  useLayoutEffect(() => {
+    fingerprintRef.current = fingerprint;
+  }, [fingerprint]);
   const startedRef = useRef(0);
   const appliedRef = useRef(0);
   const [inFlight, setInFlight] = useState(false);
@@ -105,6 +110,8 @@ export function RequirementsAnalysis({
   const [draftFindingId, setDraftFindingId] = useState<string | null>(null);
   const [pendingApply, setPendingApply] = useState<PendingRequirementApply | null>(null);
   const [rejectedFindingId, setRejectedFindingId] = useState<string | null>(null);
+  const [privacyIntent, setPrivacyIntent] = useState<"analysis" | "writing">("analysis");
+  const writingContinueRef = useRef<(() => void) | null>(null);
 
   const stale = stored !== null && stored.fingerprint !== fingerprint;
   const structured = content.mode === "structured";
@@ -148,6 +155,7 @@ export function RequirementsAnalysis({
       return;
     }
     if (!acknowledged) {
+      setPrivacyIntent("analysis");
       privacyConfirmation.open(trigger);
       setConfirming(true);
       return;
@@ -225,8 +233,10 @@ export function RequirementsAnalysis({
   }
 
   const counts = stored && session ? reviewCounts(session, stored.result.findings.map((finding) => finding.id)) : null;
+  const clarifications = session && stored ? clarificationAnswersForWriting(session, stored.result.findings, fingerprint) : [];
 
   return (
+    <>
     <section className="analysis" aria-labelledby="analysis-heading">
       <h2 id="analysis-heading">{UI_TEXT.analysis.heading}</h2>
       <p className="hint">{UI_TEXT.analysis.intro}</p>
@@ -255,8 +265,10 @@ export function RequirementsAnalysis({
             setConfirming(false);
           }}
         >
-          <h3 id="analysis-confirm-heading">{UI_TEXT.analysis.confirmHeading}</h3>
-          <p>{UI_TEXT.analysis.confirmBody}</p>
+          <h3 id="analysis-confirm-heading">
+            {privacyIntent === "writing" ? UI_TEXT.writing.confirmHeading : UI_TEXT.analysis.confirmHeading}
+          </h3>
+          <p>{privacyIntent === "writing" ? UI_TEXT.writing.confirmBody : UI_TEXT.analysis.confirmBody}</p>
           <div className="actions">
             <button
               type="button"
@@ -269,8 +281,20 @@ export function RequirementsAnalysis({
             >
               {UI_TEXT.buttons.cancel}
             </button>
-            <button type="button" onClick={() => void send()}>
-              {UI_TEXT.analysis.send}
+            <button
+              type="button"
+              onClick={() => {
+                if (privacyIntent === "writing") {
+                  setAcknowledged(true);
+                  setConfirming(false);
+                  writingContinueRef.current?.();
+                  writingContinueRef.current = null;
+                  return;
+                }
+                void send();
+              }}
+            >
+              {privacyIntent === "writing" ? UI_TEXT.writing.send : UI_TEXT.analysis.send}
             </button>
           </div>
         </div>
@@ -343,10 +367,15 @@ export function RequirementsAnalysis({
                           onClearRejection={() => setRejectedFindingId((current) => (current === finding.id ? null : current))}
                           onDecision={(decision) => updateSession(setReviewDecision(session, finding.id, decision))}
                           onAnswer={(answer) => {
-                            const next = setReviewAnswer(session, finding.id, answer);
+                            const next = setReviewAnswer(session, finding.id, answer, fingerprint);
                             if (!next) return false;
                             setSession(next);
                             return true;
+                          }}
+                          answerForModel={clarifications.find((item) => item.findingId === finding.id)?.authorizedForModel === true}
+                          onConfirmAnswer={() => {
+                            const next = confirmAnswerForCurrentRequirements(session, finding.id, fingerprint);
+                            if (next) setSession(next);
                           }}
                           onToggleDraft={() => {
                             if (stale || !structured) return;
@@ -364,6 +393,20 @@ export function RequirementsAnalysis({
         </div>
       )}
     </section>
+    <RequirementsWriter
+      config={config}
+      clarifications={clarifications}
+      privacyAcknowledged={acknowledged}
+      interactionBlocked={inFlight || confirming || confirmingRerun}
+      onNeedPrivacy={(trigger, continueWriting) => {
+        writingContinueRef.current = continueWriting;
+        setPrivacyIntent("writing");
+        privacyConfirmation.open(trigger);
+        setConfirming(true);
+      }}
+      onApplyPrepared={onApplyPrepared}
+    />
+    </>
   );
 }
 
@@ -379,6 +422,8 @@ function FindingReview({
   onClearRejection,
   onDecision,
   onAnswer,
+  answerForModel,
+  onConfirmAnswer,
   onToggleDraft,
   onApply,
 }: {
@@ -393,6 +438,8 @@ function FindingReview({
   onClearRejection: () => void;
   onDecision: (decision: ReviewDecision) => void;
   onAnswer: (answer: string) => boolean;
+  answerForModel: boolean;
+  onConfirmAnswer: () => void;
   onToggleDraft: () => void;
   onApply: (draft: RequirementDraft, prepared: PreparedRequirementChange) => boolean;
 }) {
@@ -441,6 +488,14 @@ function FindingReview({
             {UI_TEXT.analysis.saveAnswer(finding.id)}
           </button>
           {answerMessage && <p role="status">{answerMessage}</p>}
+          {record.answer !== undefined && !answerForModel && (
+            <>
+              <p>{UI_TEXT.analysis.answerKept}</p>
+              <button type="button" onClick={onConfirmAnswer}>
+                {UI_TEXT.analysis.useAnswer}
+              </button>
+            </>
+          )}
         </div>
       )}
       <button type="button" onClick={onToggleDraft} disabled={stale || !structured}>

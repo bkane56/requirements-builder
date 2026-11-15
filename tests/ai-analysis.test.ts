@@ -8,6 +8,7 @@ import {
 import {
   ANALYSIS_LIMITS,
   ANALYSIS_RESPONSE_SCHEMA,
+  analysisSchemaFailure,
   parseAnalysisResult,
   readAnalysisResult,
 } from "../lib/ai/analysis-schema";
@@ -363,6 +364,21 @@ function deepFreeze(value: unknown): void {
   for (const item of Object.values(value)) deepFreeze(item);
 }
 
+function relatedIdsSchema(schema: object): { maxItems: number; items: { type: string; enum?: string[] } } {
+  const properties = schema as {
+    properties: {
+      findings: {
+        items: {
+          properties: {
+            relatedRequirementIds: { maxItems: number; items: { type: string; enum?: string[] } };
+          };
+        };
+      };
+    };
+  };
+  return properties.properties.findings.items.properties.relatedRequirementIds;
+}
+
 function scriptedProvider(results: unknown[]): { provider: AnalysisProvider; requests: AnalysisCompletionRequest[] } {
   const requests: AnalysisCompletionRequest[] = [];
   return {
@@ -480,6 +496,34 @@ describe("analyzeRequirements", () => {
       error: "invalid-response",
     });
     expect(invalid.requests).toHaveLength(1);
+  });
+
+  it("rejects an identifier the reviewed requirements do not contain and withholds that identifier from the model", async () => {
+    const cited = { findings: [modelFinding({ relatedRequirementIds: ["FR-001"] })] };
+    const freeText = scriptedProvider([cited]);
+    await expect(analyzeRequirements(source, freeText.provider, { timeoutMs: 1000, retryDelayMs: 0 })).resolves.toEqual({
+      ok: false,
+      error: "invalid-response",
+    });
+    expect(analysisSchemaFailure(cited, new Set())).toBe("related-unknown");
+    expect(relatedIdsSchema(freeText.requests[0].schema)).toEqual({
+      type: "array",
+      maxItems: 0,
+      items: { type: "string" },
+    });
+
+    const structured = config({
+      projectName: "Receipt Tracker",
+      businessRequirements: "Users can upload a receipt.",
+      requirementsContent: structuredContent,
+    });
+    const accepted = scriptedProvider([cited]);
+    const outcome = await analyzeRequirements(structured, accepted.provider, { timeoutMs: 1000, retryDelayMs: 0 });
+    expect(outcome.ok).toBe(true);
+    expect(relatedIdsSchema(accepted.requests[0].schema).items).toEqual({
+      type: "string",
+      enum: ["AC-001", "AC-002", "FR-001", "FR-002"],
+    });
   });
 });
 

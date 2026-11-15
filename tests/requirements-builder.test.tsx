@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RequirementsBuilder, { commitPreparedRequirementChange } from "../components/requirements-builder";
 import { analysisFingerprint, buildAnalysisInput } from "../lib/ai/analysis-input";
 import { prepareRequirementChange } from "../lib/ai/review";
+import { buildWritingInput, writingFingerprint, writingSourceFingerprint } from "../lib/ai/writing-input";
 import { assembleRequirements } from "../lib/assemble-requirements";
 import { defaultConfig, type ProjectConfig } from "../lib/config";
 import { serializeConfig } from "../lib/config-file";
@@ -1327,6 +1328,20 @@ function fingerprintOf(body: string) {
   return analysisFingerprint(buildAnalysisInput(sent.config));
 }
 
+function writingBody(body: string, suggestions: unknown[]) {
+  const sent = JSON.parse(body) as { config: ProjectConfig };
+  const input = buildWritingInput(sent.config, []);
+  return {
+    ok: true,
+    fingerprint: writingFingerprint(input),
+    sourceFingerprint: writingSourceFingerprint(input),
+    origin: input.requirements.kind,
+    result: { suggestions, nextSuggestionNumber: suggestions.length + 1 },
+    includedClarifications: input.clarifications,
+    excludedFindingIds: [] as string[],
+  };
+}
+
 describe("AI requirements analysis", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -1894,6 +1909,321 @@ describe("AI requirements analysis", () => {
     expect(field("FR-001 text").value).toBe(businessRequirements);
     expect(screen.queryByLabelText("AC-002 text")).toBeNull();
     expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+  });
+
+  it("keeps a free-text writing draft through an explicit structured transition", async () => {
+    const businessRequirements = "Users can upload a receipt.\n  Keep this line.";
+    fillRequired(businessRequirements);
+    const { pending, fetchMock } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("region", { name: UI_TEXT.writing.confirmHeading })).getByRole("button", { name: UI_TEXT.writing.send }));
+    const suggestion = {
+      id: "W-001",
+      kind: "new-functional",
+      text: "A person has a role.",
+      rationale: "The description names a person.",
+      uncertainty: null,
+      nestedCriteria: [{ text: "Opening a stored receipt shows its image.", rationale: "The receipt is stored.", uncertainty: null }],
+    };
+    pending[0].resolve(analysisResponse(writingBody(pending[0].body, [suggestion])));
+
+    expect(await screen.findByText(UI_TEXT.writing.copyTransition)).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.writing.emptyTransition)).toBeTruthy();
+    expect(field("Business requirements").value).toBe(businessRequirements);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).clarifications).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.copyCurrentText }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(field("Business requirements").value).toBe(businessRequirements);
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    expect(field("FR-001 status").value).toBe("confirmed");
+    expect(screen.queryByText(UI_TEXT.writing.copyTransition)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }));
+    const region = screen.getByRole("region", { name: UI_TEXT.writing.preview("W-001") });
+    expect(previewFact(region, UI_TEXT.analysis.previewSource)).toBe(UI_TEXT.analysis.sources.ai);
+    expect(previewFact(region, UI_TEXT.analysis.previewStatus)).toBe(UI_TEXT.requirementStatus.proposed);
+    expect(previewFact(region, UI_TEXT.analysis.previewId)).toBe("FR-002");
+    expect(within(region).getByText(UI_TEXT.writing.nestedRemain("FR-002"))).toBeTruthy();
+    expect(within(region).getByText("Opening a stored receipt shows its image.")).toBeTruthy();
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    fireEvent.click(within(region).getByRole("button", { name: UI_TEXT.analysis.applyChange("W-001") }));
+
+    expect(field("FR-002 text").value).toBe("A person has a role.");
+    expect(field("FR-002 status").value).toBe("proposed");
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+    expect(field(UI_TEXT.writing.textLabel("W-002")).value).toBe("Opening a stored receipt shows its image.");
+    expect(screen.getByText(UI_TEXT.writing.detachedCriteria("FR-002", ["W-002"]))).toBeTruthy();
+    expect(screen.getByRole("region", { name: UI_TEXT.writing.criteriaFor("FR-002") })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-002") }));
+    const criterionPreview = screen.getByRole("region", { name: UI_TEXT.writing.preview("W-002") });
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewScope)).toBe(UI_TEXT.criterionScope.requirement);
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewLinks)).toBe("FR-002");
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("W-002") }));
+    expect(field("AC-001 text").value).toBe("Opening a stored receipt shows its image.");
+    expect(field("AC-001 status").value).toBe("proposed");
+    expect((screen.getByRole("checkbox", { name: "AC-001 applies to FR-002" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "AC-001 applies to FR-001" }) as HTMLInputElement).checked).toBe(false);
+    assemble();
+    expect(preview()).not.toContain("A person has a role.");
+    expect(preview()).toContain(businessRequirements);
+  });
+
+  it("groups detached nested criteria under the new functional requirement and keeps their links", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.send }));
+    const listCriterion = "The list shows the person.";
+    const detailCriterion = "The detail shows the role.";
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "A person has a role.",
+            rationale: "The description names a person.",
+            uncertainty: null,
+            nestedCriteria: [
+              { text: listCriterion, rationale: "The list is visible." },
+              { text: detailCriterion, rationale: "The detail is visible." },
+            ],
+          },
+          {
+            id: "W-002",
+            kind: "new-criterion",
+            text: "The project builds.",
+            rationale: "The build is a project outcome.",
+            uncertainty: null,
+            scope: "project",
+            requirementIds: [],
+          },
+          {
+            id: "W-003",
+            kind: "new-criterion",
+            text: "The tests pass.",
+            rationale: "The tests are a project outcome.",
+            uncertainty: null,
+            scope: "project",
+            requirementIds: [],
+          },
+        ]),
+      ),
+    );
+
+    expect(await screen.findByText(UI_TEXT.writing.copyTransition)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.copyCurrentText }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }));
+    const parentPreview = screen.getByRole("region", { name: UI_TEXT.writing.preview("W-001") });
+    expect(within(parentPreview).getByText(UI_TEXT.writing.nestedRemain("FR-002"))).toBeTruthy();
+    expect(within(parentPreview).getByText(listCriterion)).toBeTruthy();
+    expect(within(parentPreview).getByText(detailCriterion)).toBeTruthy();
+    expect(within(parentPreview).getByRole("button", { name: UI_TEXT.analysis.applyChange("W-001") })).toBeTruthy();
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+
+    fireEvent.click(within(parentPreview).getByRole("button", { name: UI_TEXT.analysis.applyChange("W-001") }));
+    expect(field("FR-002 text").value).toBe("A person has a role.");
+    expect(field("FR-002 status").value).toBe("proposed");
+    expect(screen.queryByLabelText("AC-001 text")).toBeNull();
+    expect(screen.getByText(UI_TEXT.writing.detachedCriteria("FR-002", ["W-004", "W-005"]))).toBeTruthy();
+
+    const criteria = screen.getByRole("region", { name: UI_TEXT.writing.criteria });
+    const grouped = within(criteria).getByRole("region", { name: UI_TEXT.writing.criteriaFor("FR-002") });
+    expect((within(grouped).getByLabelText(UI_TEXT.writing.textLabel("W-004")) as HTMLTextAreaElement).value).toBe(listCriterion);
+    expect((within(grouped).getByLabelText(UI_TEXT.writing.textLabel("W-005")) as HTMLTextAreaElement).value).toBe(detailCriterion);
+    expect(within(grouped).queryByLabelText(UI_TEXT.writing.textLabel("W-002"))).toBeNull();
+    const projectSuggestion = within(criteria).getByLabelText(UI_TEXT.writing.textLabel("W-002"));
+    expect(grouped.compareDocumentPosition(projectSuggestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(grouped).getByRole("button", { name: UI_TEXT.writing.dismiss("W-005") })).toBeTruthy();
+
+    fireEvent.click(within(grouped).getByRole("button", { name: UI_TEXT.writing.preview("W-004") }));
+    const criterionPreview = screen.getByRole("region", { name: UI_TEXT.writing.preview("W-004") });
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewId)).toBe("AC-001");
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewSource)).toBe(UI_TEXT.analysis.sources.ai);
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewStatus)).toBe(UI_TEXT.requirementStatus.proposed);
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewScope)).toBe(UI_TEXT.criterionScope.requirement);
+    expect(previewFact(criterionPreview, UI_TEXT.analysis.previewLinks)).toBe("FR-002");
+    fireEvent.click(within(criterionPreview).getByRole("button", { name: UI_TEXT.analysis.applyChange("W-004") }));
+    expect(field("AC-001 text").value).toBe(listCriterion);
+    expect(field("AC-001 status").value).toBe("proposed");
+    expect((screen.getByRole("checkbox", { name: "AC-001 applies to FR-002" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "AC-001 applies to FR-001" }) as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.dismiss("W-005") }));
+    expect(screen.queryByLabelText(UI_TEXT.writing.textLabel("W-005"))).toBeNull();
+    expect(screen.queryByLabelText("AC-002 text")).toBeNull();
+    expect(within(criteria).getByRole("button", { name: UI_TEXT.writing.preview("W-002") })).toBeTruthy();
+    expect(within(criteria).getByRole("button", { name: UI_TEXT.writing.dismiss("W-002") })).toBeTruthy();
+  });
+
+  it("does not transfer a writing draft after the free-text source changes", async () => {
+    fillRequired("Users can upload a receipt.");
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.send }));
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "A person has a role.",
+            rationale: "Named in the description.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByText(UI_TEXT.writing.copyTransition)).toBeTruthy();
+    change("Business requirements", "Users can upload a receipt today.");
+    expect(screen.getByText(UI_TEXT.writing.stale)).toBeTruthy();
+    expect((screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.copyCurrentText }));
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+  });
+
+  it("refuses a writing suggestion that repeats the copied requirement", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.send }));
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: businessRequirements,
+            rationale: "Restates the requirement.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByRole("button", { name: UI_TEXT.writing.preview("W-001") })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.copyCurrentText }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }));
+    expect(screen.getByText(UI_TEXT.writing.duplicate)).toBeTruthy();
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+  });
+
+  it("keeps a clarification answer for review until it is explicitly checked again", async () => {
+    fillRequired();
+    await receiveAnalysis();
+    fireEvent.change(field(UI_TEXT.analysis.answerLabel("F-001")), { target: { value: "  10 MB.\n" } });
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.saveAnswer("F-001") }));
+    change("Project name", "Receipt Tracker Updated");
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("  10 MB.\n");
+    expect(screen.getByText(UI_TEXT.analysis.answerKept)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.useAnswer }));
+    expect(screen.queryByText(UI_TEXT.analysis.answerKept)).toBeNull();
+    change("Project name", "Receipt Tracker Again");
+    expect(field(UI_TEXT.analysis.answerLabel("F-001")).value).toBe("  10 MB.\n");
+    expect(screen.getByText(UI_TEXT.analysis.answerKept)).toBeTruthy();
+  });
+
+  it("reports a rejected writing change when the requirements change after a valid preview", async () => {
+    fillRequired("Users can upload a receipt.");
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.send }));
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "new-functional",
+            text: "A person has a role.",
+            rationale: "Named in the description.",
+            uncertainty: null,
+            nestedCriteria: [],
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByRole("button", { name: UI_TEXT.writing.preview("W-001") })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.useStructuredRequirements }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.copyCurrentText }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }));
+    const requirement = field("FR-001 text");
+    const apply = screen.getByRole("button", { name: UI_TEXT.analysis.applyChange("W-001") });
+    const handler = (element: HTMLElement, name: string) => {
+      const key = Object.keys(element).find((item) => item.startsWith("__reactProps$"));
+      const props = key ? (element as unknown as Record<string, Record<string, (value?: unknown) => void>>)[key] : null;
+      const callback = props?.[name];
+      if (!callback) throw new Error(`Missing ${name}`);
+      return callback;
+    };
+    act(() => {
+      handler(requirement, "onChange")({ target: { value: "Users can upload a receipt today." } });
+      handler(apply, "onClick")();
+    });
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt today.");
+    expect(screen.queryByLabelText("FR-002 text")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveProperty("textContent", UI_TEXT.analysis.applyRejected);
+  });
+
+  it("requires a second confirmation before a writing revision replaces confirmed text", async () => {
+    const businessRequirements = "Users can upload a receipt.";
+    fillRequired(businessRequirements);
+    beginStructured("Copy current text");
+    const { pending } = holdAnalysisFetch();
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.draft }));
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.send }));
+    pending[0].resolve(
+      analysisResponse(
+        writingBody(pending[0].body, [
+          {
+            id: "W-001",
+            kind: "revise-functional",
+            targetId: "FR-001",
+            text: "Users can upload a receipt and see it later.",
+            rationale: "The later view is missing.",
+            uncertainty: null,
+          },
+        ]),
+      ),
+    );
+    expect(await screen.findByRole("button", { name: UI_TEXT.writing.preview("W-001") })).toBeTruthy();
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.writing.preview("W-001") }));
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    const region = screen.getByRole("region", { name: UI_TEXT.writing.preview("W-001") });
+    expect(previewFact(region, UI_TEXT.analysis.previewSource)).toBe(UI_TEXT.analysis.sources.user);
+    expect(previewFact(region, UI_TEXT.analysis.previewStatus)).toBe(UI_TEXT.requirementStatus.confirmed);
+    const opener = within(region).getByRole("button", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") });
+    fireEvent.click(opener);
+    fireEvent.click(
+      within(screen.getByRole("region", { name: UI_TEXT.analysis.authoritativeHeading("FR-001") })).getByRole("button", { name: UI_TEXT.buttons.cancel }),
+    );
+    expect(field("FR-001 text").value).toBe(businessRequirements);
+    expect(document.activeElement).toBe(opener);
+    fireEvent.click(opener);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.analysis.authoritativeReplace("FR-001") }));
+    expect(field("FR-001 text").value).toBe("Users can upload a receipt and see it later.");
+    expect(field("FR-001 status").value).toBe("confirmed");
+  });
+
+  it("returns focus when a writing confirmation is cancelled from the keyboard", () => {
+    const { fetchMock } = holdAnalysisFetch();
+    const draft = screen.getByRole("button", { name: UI_TEXT.writing.draft });
+    fireEvent.click(draft);
+    fireEvent.keyDown(screen.getByRole("button", { name: UI_TEXT.buttons.cancel }), { key: "Escape" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: UI_TEXT.writing.confirmHeading })).toBeNull();
+    expect(document.activeElement).toBe(draft);
   });
 });
 

@@ -1,4 +1,4 @@
-import { ANALYSIS_RESPONSE_SCHEMA, ANALYSIS_SCHEMA_NAME } from "./analysis-schema";
+import { reportAnalysisDiagnostic, type AnalysisDiagnostic } from "./diagnostics";
 
 export class AnalysisProviderError extends Error {
   readonly code: "timeout" | "provider" | "invalid-response";
@@ -12,17 +12,19 @@ export class AnalysisProviderError extends Error {
   }
 }
 
-export type AnalysisCompletionRequest = {
+export type StructuredCompletionRequest = {
   system: string;
   user: string;
-  schema: typeof ANALYSIS_RESPONSE_SCHEMA;
-  schemaName: typeof ANALYSIS_SCHEMA_NAME;
+  schema: object;
+  schemaName: string;
   maxOutputTokens: number;
   signal: AbortSignal;
 };
 
+export type AnalysisCompletionRequest = StructuredCompletionRequest;
+
 export type AnalysisProvider = {
-  complete(request: AnalysisCompletionRequest): Promise<unknown>;
+  complete(request: StructuredCompletionRequest): Promise<unknown>;
 };
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -94,15 +96,42 @@ async function readCompletedJson(response: Response): Promise<unknown> {
   try {
     payload = await response.json();
   } catch {
+    reportAnalysisDiagnostic({ stage: "response-json", httpStatus: response.status, jsonParsed: false });
     throw new AnalysisProviderError("invalid-response");
   }
+  const observed = observeResponse(payload);
   const text = readOutputText(payload);
-  if (text === null) throw new AnalysisProviderError("invalid-response");
+  if (text === null) {
+    reportAnalysisDiagnostic({
+      stage: observed.responseStatus === "completed" ? "output-text" : "response-status",
+      httpStatus: response.status,
+      ...observed,
+      outputTextPresent: false,
+    });
+    throw new AnalysisProviderError("invalid-response");
+  }
   try {
     return JSON.parse(text) as unknown;
   } catch {
+    reportAnalysisDiagnostic({
+      stage: "output-json",
+      httpStatus: response.status,
+      ...observed,
+      outputTextPresent: true,
+      jsonParsed: false,
+    });
     throw new AnalysisProviderError("invalid-response");
   }
+}
+
+function observeResponse(payload: unknown): Pick<AnalysisDiagnostic, "responseStatus" | "incompleteReason" | "outputTextPresent"> {
+  if (!isRecord(payload)) return { responseStatus: null, incompleteReason: null, outputTextPresent: false };
+  const incomplete = isRecord(payload.incomplete_details) ? payload.incomplete_details.reason : null;
+  return {
+    responseStatus: typeof payload.status === "string" ? payload.status : null,
+    incompleteReason: typeof incomplete === "string" ? incomplete : null,
+    outputTextPresent: readOutputText(payload) !== null,
+  };
 }
 
 function readOutputText(payload: unknown): string | null {

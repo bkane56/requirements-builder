@@ -27,6 +27,7 @@ export type ReviewRecord = {
   decision: ReviewDecision;
   answer?: string;
   applied?: AppliedChange;
+  answerCheckedFingerprint?: string;
 };
 
 export type ReviewSession = {
@@ -42,11 +43,12 @@ export type Stage6Clarification = {
   question: string;
   answer: string;
   current: boolean;
+  authorizedForModel: boolean;
 };
 
 export type RequirementDraft =
-  | { action: "create-functional"; text: string }
-  | { action: "create-criterion"; text: string; scope: CriterionScope; requirementIds: string[] }
+  | { action: "create-functional"; text: string; source?: RequirementSource }
+  | { action: "create-criterion"; text: string; scope: CriterionScope; requirementIds: string[]; source?: RequirementSource }
   | { action: "update-functional"; id: string; text: string; replaceConfirmed: boolean }
   | { action: "update-criterion"; id: string; text: string; replaceConfirmed: boolean };
 
@@ -85,9 +87,32 @@ export function setReviewDecision(session: ReviewSession, findingId: string, dec
   return withRecord(session, findingId, { decision });
 }
 
-export function setReviewAnswer(session: ReviewSession, findingId: string, answer: string): ReviewSession | null {
+export function setReviewAnswer(
+  session: ReviewSession,
+  findingId: string,
+  answer: string,
+  currentFingerprint?: string,
+): ReviewSession | null {
   if (answer.length > INPUT_LIMITS.longText) return null;
-  return withRecord(session, findingId, { answer });
+  const key = reviewKey(session.requestId, findingId);
+  const next = withRecord(session, findingId, { answer });
+  const record = { ...next.records[key] };
+  if (currentFingerprint !== undefined && currentFingerprint === session.fingerprint) {
+    record.answerCheckedFingerprint = currentFingerprint;
+  } else {
+    delete record.answerCheckedFingerprint;
+  }
+  return { ...next, records: { ...next.records, [key]: record } };
+}
+
+export function confirmAnswerForCurrentRequirements(
+  session: ReviewSession,
+  findingId: string,
+  currentFingerprint: string,
+): ReviewSession | null {
+  const record = reviewRecord(session, findingId);
+  if (record.answer === undefined) return null;
+  return withRecord(session, findingId, { answerCheckedFingerprint: currentFingerprint });
 }
 
 export function markReviewApplied(session: ReviewSession, findingId: string, applied: AppliedChange): ReviewSession {
@@ -129,6 +154,7 @@ export function clarificationAnswersForWriting(
       question: finding.question,
       answer: record.answer,
       current: session.fingerprint === currentFingerprint,
+      authorizedForModel: record.answerCheckedFingerprint === currentFingerprint,
     });
   }
   return answers;
@@ -147,7 +173,7 @@ export function previewRequirementChange(
       action: draft.action,
       id: formatRequirementId("FR", current.nextFunctionalNumber),
       text,
-      source: "user",
+      source: draft.source ?? "user",
       status: "proposed",
       scope: null,
       requirementIds: [],
@@ -161,7 +187,7 @@ export function previewRequirementChange(
       action: draft.action,
       id: formatRequirementId("AC", current.nextCriterionNumber),
       text,
-      source: "user",
+      source: draft.source ?? "user",
       status: "proposed",
       scope: draft.scope,
       requirementIds: draft.scope === "project" ? [] : [...draft.requirementIds],
@@ -226,14 +252,14 @@ export function applyRequirementChange(
   if (!preview || !samePreview(preview, prepared.preview)) return null;
   if (preview.replacesConfirmed && !("replaceConfirmed" in draft && draft.replaceConfirmed)) return null;
   if (draft.action === "create-functional") {
-    return addFunctionalRequirement(content, preview.text, { source: "user", status: "proposed" });
+    return addFunctionalRequirement(content, preview.text, { source: preview.source, status: "proposed" });
   }
   if (draft.action === "create-criterion") {
     return addAcceptanceCriterion(content, {
       scope: draft.scope,
       text: preview.text,
       requirementIds: draft.requirementIds,
-      source: "user",
+      source: preview.source,
       status: "proposed",
     });
   }

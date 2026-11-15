@@ -104,12 +104,39 @@ export const ANALYSIS_RESPONSE_SCHEMA = {
   },
 };
 
+export function analysisResponseSchema(knownIds: ReadonlySet<string>): object {
+  const schema = structuredClone(ANALYSIS_RESPONSE_SCHEMA);
+  const ids = [...knownIds].sort();
+  const properties = schema.properties.findings.items.properties as {
+    relatedRequirementIds: {
+      type: string;
+      maxItems: number;
+      items: { type: string; pattern?: string; enum?: string[] };
+    };
+  };
+  properties.relatedRequirementIds =
+    ids.length === 0
+      ? { type: "array", maxItems: 0, items: { type: "string" } }
+      : { type: "array", maxItems: ANALYSIS_LIMITS.relatedIds, items: { type: "string", enum: ids } };
+  return schema;
+}
+
 export function parseAnalysisResult(value: unknown, knownIds: ReadonlySet<string>): AnalysisResult | null {
   const findings = readFindings(value, knownIds, false);
   if (!findings) return null;
   return {
     findings: findings.map((finding, index) => ({ ...finding, id: formatFindingId(index + 1) })),
   };
+}
+
+export function analysisSchemaFailure(value: unknown, knownIds: ReadonlySet<string>): string | null {
+  if (!isRecord(value) || !sameKeys(value, ["findings"]) || !Array.isArray(value.findings)) return "result-shape";
+  if (value.findings.length > ANALYSIS_LIMITS.findings) return "too-many-findings";
+  for (const entry of value.findings) {
+    const failure = findingFailure(entry, knownIds, false);
+    if (failure) return failure;
+  }
+  return null;
 }
 
 export function readAnalysisResult(value: unknown): AnalysisResult | null {
@@ -185,6 +212,33 @@ function readNullableText(value: unknown, max: number): string | null | undefine
   if (value === null) return null;
   if (typeof value !== "string" || value.length < 1 || value.length > max) return undefined;
   return value;
+}
+
+function findingFailure(entry: unknown, knownIds: ReadonlySet<string> | null, expectId: boolean): string | null {
+  if (!isRecord(entry) || !sameKeys(entry, expectId ? RESULT_KEYS : MODEL_KEYS)) return "finding-keys";
+  if (!includes(ANALYSIS_CATEGORIES, entry.category)) return "category";
+  if (!includes(ANALYSIS_SEVERITIES, entry.severity)) return "severity";
+  if (readBoundedText(entry.explanation, ANALYSIS_LIMITS.explanation) === null) return "explanation";
+  if (readNullableText(entry.question, ANALYSIS_LIMITS.question) === undefined) return "question";
+  if (readNullableText(entry.suggestedAction, ANALYSIS_LIMITS.suggestedAction) === undefined) return "suggested-action";
+  if (readNullableText(entry.uncertainty, ANALYSIS_LIMITS.uncertainty) === undefined) return "uncertainty";
+  const related = relatedFailure(entry.relatedRequirementIds, knownIds);
+  if (related) return related;
+  if (expectId && (typeof entry.id !== "string" || findingIdNumber(entry.id) === null)) return "finding-id";
+  return null;
+}
+
+function relatedFailure(value: unknown, knownIds: ReadonlySet<string> | null): string | null {
+  if (!Array.isArray(value)) return "related-type";
+  if (value.length > ANALYSIS_LIMITS.relatedIds) return "related-count";
+  const ids: string[] = [];
+  for (const id of value) {
+    if (typeof id !== "string" || !isRequirementId(id)) return "related-pattern";
+    if (knownIds && !knownIds.has(id)) return "related-unknown";
+    ids.push(id);
+  }
+  if (new Set(ids).size !== ids.length) return "related-duplicate";
+  return null;
 }
 
 function readRelatedIds(value: unknown, knownIds: ReadonlySet<string> | null): string[] | null {

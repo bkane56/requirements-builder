@@ -4,6 +4,7 @@ import { defaultRequirementsContent, type RequirementsContent } from "../lib/req
 import {
   applyRequirementChange,
   clarificationAnswersForWriting,
+  confirmAnswerForCurrentRequirements,
   emptyReviewSession,
   findingGroup,
   markReviewApplied,
@@ -11,6 +12,7 @@ import {
   previewRequirementChange,
   reviewCounts,
   reviewKey,
+  reviewRecord,
   sessionHasReviewWork,
   setReviewAnswer,
   setReviewDecision,
@@ -83,12 +85,37 @@ describe("review records", () => {
         question: "Which details are shown?",
         answer: "  Name and role.\n",
         current: true,
+        authorizedForModel: false,
       },
     ]);
     const stale = clarificationAnswersForWriting(withDeferred, [finding], "edited-fingerprint");
     expect(stale[0]?.current).toBe(false);
     expect(stale[0]?.answer).toBe("  Name and role.\n");
     expect(setReviewAnswer(emptyReviewSession(1, "fp"), "F-001", "x".repeat(INPUT_LIMITS.longText + 1))).toBeNull();
+  });
+
+  it("keeps a saved answer when requirements change and sends it only after an explicit check", () => {
+    const session = setReviewAnswer(emptyReviewSession(4, "run-fingerprint"), "F-001", "  Name and role.\n", "run-fingerprint");
+    const current = clarificationAnswersForWriting(session!, [finding], "run-fingerprint");
+    expect(current[0]?.authorizedForModel).toBe(true);
+    expect(current[0]?.fingerprint).toBe("run-fingerprint");
+    const changed = clarificationAnswersForWriting(session!, [finding], "structured-fingerprint");
+    expect(changed[0]?.answer).toBe("  Name and role.\n");
+    expect(changed[0]?.question).toBe("Which details are shown?");
+    expect(changed[0]?.requestId).toBe(4);
+    expect(changed[0]?.findingId).toBe("F-001");
+    expect(changed[0]?.fingerprint).toBe("run-fingerprint");
+    expect(changed[0]?.current).toBe(false);
+    expect(changed[0]?.authorizedForModel).toBe(false);
+    const checked = confirmAnswerForCurrentRequirements(session!, "F-001", "structured-fingerprint");
+    expect(reviewRecord(checked!, "F-001").answer).toBe("  Name and role.\n");
+    expect(checked?.fingerprint).toBe("run-fingerprint");
+    const authorized = clarificationAnswersForWriting(checked!, [finding], "structured-fingerprint");
+    expect(authorized[0]?.authorizedForModel).toBe(true);
+    expect(authorized[0]?.fingerprint).toBe("run-fingerprint");
+    const editedAgain = clarificationAnswersForWriting(checked!, [finding], "edited-again");
+    expect(editedAgain[0]?.answer).toBe("  Name and role.\n");
+    expect(editedAgain[0]?.authorizedForModel).toBe(false);
   });
 
   it("groups a question ahead of a contradiction category", () => {
@@ -130,6 +157,19 @@ describe("requirement changes", () => {
     expect(next?.nextFunctionalNumber).toBe(4);
     expect(content.functionalRequirements).toHaveLength(2);
     expect(content.functionalRequirements[0]?.text).toBe("Show the people list.");
+  });
+
+  it("keeps an edited AI draft as source ai and proposed", () => {
+    const content = structured();
+    const draft = { action: "create-functional" as const, text: "A person has a role.", source: "ai" as const };
+    const next = commit(content, draft);
+    expect(next?.functionalRequirements[2]).toEqual({
+      id: "FR-003",
+      text: "A person has a role.",
+      source: "ai",
+      status: "proposed",
+    });
+    expect(content.nextFunctionalNumber).toBe(3);
   });
 
   it("creates a linked proposed criterion and rejects invalid links", () => {

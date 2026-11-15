@@ -7,11 +7,13 @@ import {
 } from "./analysis-input";
 import {
   ANALYSIS_OUTPUT_TOKEN_BUDGET,
-  ANALYSIS_RESPONSE_SCHEMA,
   ANALYSIS_SCHEMA_NAME,
+  analysisResponseSchema,
+  analysisSchemaFailure,
   parseAnalysisResult,
   type AnalysisResult,
 } from "./analysis-schema";
+import { reportAnalysisDiagnostic } from "./diagnostics";
 import { ANALYSIS_SYSTEM_PROMPT } from "./prompt";
 import { AnalysisProviderError, type AnalysisProvider } from "./provider";
 
@@ -60,13 +62,17 @@ async function complete(
   const raw = await provider.complete({
     system: ANALYSIS_SYSTEM_PROMPT,
     user: fingerprint,
-    schema: ANALYSIS_RESPONSE_SCHEMA,
+    schema: analysisResponseSchema(analysisRequirementIds(input)),
     schemaName: ANALYSIS_SCHEMA_NAME,
     maxOutputTokens: ANALYSIS_OUTPUT_TOKEN_BUDGET,
     signal: AbortSignal.timeout(timeoutMs),
   });
-  const result = parseAnalysisResult(raw, analysisRequirementIds(input));
-  if (!result) return { ok: false, error: "invalid-response" };
+  const knownIds = analysisRequirementIds(input);
+  const result = parseAnalysisResult(raw, knownIds);
+  if (!result) {
+    reportAnalysisDiagnostic({ stage: "schema", schemaFailure: analysisSchemaFailure(raw, knownIds) ?? "rejected" });
+    return { ok: false, error: "invalid-response" };
+  }
   return { ok: true, fingerprint, result };
 }
 

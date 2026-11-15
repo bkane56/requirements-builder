@@ -230,6 +230,44 @@ export const UI_TEXT = {
     rerunHeading: "Run analysis again?",
     rerunBody: "Decisions and answers for this analysis will be discarded. Requirements you already added stay in the form.",
     rerunContinue: "Discard review and analyze",
+    answerKept:
+      "This answer is kept for review. It is not sent to the model until you confirm it still applies to the current requirements.",
+    useAnswer: "Use this answer for the current requirements",
+  },
+  writing: {
+    heading: "AI requirements writing",
+    intro:
+      "Writing is optional. It drafts proposed requirements from the current project information. A draft does not change the form or the document until you add a suggestion.",
+    draft: "Draft requirements with AI",
+    working: "Drafting requirements.",
+    confirmHeading: "Send requirements for AI writing?",
+    confirmBody:
+      "The project name, description, active requirements, selected technology choices, and answers that still match those requirements will be sent to the configured AI provider. Nothing in the form or the document is changed.",
+    send: "Send for writing",
+    stale: "This draft is out of date because the requirements it was based on changed. Draft again before adding a suggestion.",
+    copyTransition:
+      "Copy current text makes the exact business requirements a confirmed user requirement. Non-blank acceptance text becomes a confirmed project-wide user criterion. Those copied items can appear in the document. The original free-text fields stay unchanged and are left out of the document while structured requirements are on. AI suggestions stay proposed until you add and later confirm each one.",
+    emptyTransition:
+      "Start with an empty list creates no structured requirement. The original free-text fields stay unchanged and do not become the document source. Nothing is authoritative until you add a suggestion and later confirm it in the structured requirements editor.",
+    transitionHint: "Use the structured requirements controls above. This draft is not sent to the model again.",
+    duplicate: "This suggestion matches an existing requirement, so it was not added.",
+    missingLink: "The linked requirement is gone. This criterion cannot be added.",
+    preview: (id: string) => `Preview ${id}`,
+    dismiss: (id: string) => `Dismiss ${id}`,
+    textLabel: (id: string) => `Suggested text for ${id}`,
+    nestedTextLabel: (id: string, index: number) => `Nested criterion ${index + 1} for ${id}`,
+    nestedRemain: (id: string) =>
+      `Applying this suggestion creates only ${id} as a proposed functional requirement. These nested acceptance criteria stay as separate suggestions linked to ${id}. Preview and apply each one on its own. None of them is added or confirmed automatically.`,
+    detachedCriteria: (functionalId: string, suggestionIds: readonly string[]) =>
+      `${functionalId} was added as a proposed functional requirement. Its acceptance criteria remain individual suggestions: ${suggestionIds.join(", ")}. They are grouped under ${functionalId}. Preview and apply each one. None of them is added or confirmed automatically.`,
+    criteriaFor: (functionalId: string) => `Acceptance criteria for ${functionalId}`,
+    questions: "Unresolved questions",
+    newRequirements: "Proposed functional requirements",
+    revisions: "Proposed revisions",
+    criteria: "Proposed acceptance criteria",
+    withheld: "Kept for review and not sent with this draft.",
+    provenance: "AI proposal",
+    notConfirmed: "Proposed. It stays out of the document until you confirm it in the structured requirements editor.",
   },
 } as const;
 
