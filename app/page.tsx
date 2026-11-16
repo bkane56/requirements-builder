@@ -5,10 +5,5 @@ import { loadTemplates } from "@/lib/load-templates";
 export const ensureStatic = "navigation";
 
 export default function Page() {
-  return (
-    <main>
-      <h1>Requirements Builder</h1>
-      <RequirementsBuilder templates={loadTemplates()} />
-    </main>
-  );
+  return <RequirementsBuilder templates={loadTemplates()} />;
 }

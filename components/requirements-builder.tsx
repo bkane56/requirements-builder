@@ -135,6 +135,11 @@ const TEXT_FIELDS: TextFieldSpec[] = [
   },
 ];
 
+const PROJECT_TEXT_FIELDS = TEXT_FIELDS.filter((field) => field.name === "projectName" || field.name === "description");
+const REQUIREMENT_TEXT_FIELDS = TEXT_FIELDS.filter(
+  (field) => field.name === "businessRequirements" || field.name === "acceptanceCriteria" || field.name === "stretchGoals",
+);
+
 // Document order, used to move focus to the first invalid control.
 const CONFIG_FILE_ERRORS: Record<ConfigFileError, string> = {
   "not-json": UI_TEXT.configFile.notJson,
@@ -1001,10 +1006,50 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     if (activePending) keepEditsRef.current?.focus();
   }, [activePending]);
 
+  function renderTextField(field: TextFieldSpec) {
+    const id = fieldId(field.name);
+    const error = errors[field.name];
+    const structured = requirementsOf(config).mode === "structured";
+    const preserved =
+      structured && (field.name === "businessRequirements" || field.name === "acceptanceCriteria");
+    const hint = preserved ? UI_TEXT.fields.structuredKept : field.hint;
+    const commonProps = {
+      id,
+      name: field.name,
+      value: config[field.name],
+      maxLength: field.maxLength,
+      "aria-required": field.required && !preserved ? true : undefined,
+      "aria-invalid": error ? true : undefined,
+      "aria-describedby": describedBy(hint && `${id}-hint`, error && `${id}-error`),
+    };
+
+    return (
+      <div className="field" key={field.name}>
+        <label htmlFor={id}>{field.label}</label>
+        {hint && (
+          <span id={`${id}-hint`} className="hint">
+            {hint}
+          </span>
+        )}
+        {field.multiline ? (
+          <textarea {...commonProps} onChange={(event) => update(field.name, event.target.value)} />
+        ) : (
+          <input type="text" {...commonProps} onChange={(event) => update(field.name, event.target.value)} />
+        )}
+        <ErrorText name={field.name} error={error} />
+      </div>
+    );
+  }
+
+  const projectLabel = config.projectName.trim() || UI_TEXT.unnamedProject;
+
   return (
-    <div className="layout">
-      <section className="configuration" aria-labelledby="configuration-heading">
-        <h2 id="configuration-heading">{UI_TEXT.configurationHeading}</h2>
+    <div className="app-frame">
+      <header className="app-header">
+        <div className="app-header-identity">
+          <h1>Requirements Builder</h1>
+          <p className="project-name">{projectLabel}</p>
+        </div>
         {saveNotice && (
           <p role="status" className="notice">
             {saveNotice}
@@ -1015,41 +1060,60 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             {UI_TEXT.draftRecovery.resetFailed}
           </p>
         )}
-        <form onSubmit={handleSubmit} noValidate aria-label={UI_TEXT.configurationFormLabel}>
-        {TEXT_FIELDS.map((field) => {
-          const id = fieldId(field.name);
-          const error = errors[field.name];
-          const structured = requirementsOf(config).mode === "structured";
-          const preserved =
-            structured && (field.name === "businessRequirements" || field.name === "acceptanceCriteria");
-          const hint = preserved ? UI_TEXT.fields.structuredKept : field.hint;
-          const commonProps = {
-            id,
-            name: field.name,
-            value: config[field.name],
-            maxLength: field.maxLength,
-            "aria-required": field.required && !preserved ? true : undefined,
-            "aria-invalid": error ? true : undefined,
-            "aria-describedby": describedBy(hint && `${id}-hint`, error && `${id}-error`),
-          };
-
-          return (
-            <div className="field" key={field.name}>
-              <label htmlFor={id}>{field.label}</label>
-              {hint && (
-                <span id={`${id}-hint`} className="hint">
-                  {hint}
-                </span>
-              )}
-              {field.multiline ? (
-                <textarea {...commonProps} onChange={(event) => update(field.name, event.target.value)} />
-              ) : (
-                <input type="text" {...commonProps} onChange={(event) => update(field.name, event.target.value)} />
-              )}
-              <ErrorText name={field.name} error={error} />
+        <div className="app-header-actions">
+          <button
+            type="button"
+            className="secondary"
+            disabled={!persistenceReady || startNewConfirming}
+            onClick={(event) => openStartNew(event.currentTarget)}
+          >
+            {UI_TEXT.buttons.startNewProject}
+          </button>
+          {startNewConfirming && (
+            <div
+              className="confirm"
+              role="region"
+              aria-labelledby="start-new-heading"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                setStartNewConfirming(false);
+              }}
+            >
+              <h3 id="start-new-heading">{UI_TEXT.draftRecovery.startHeading}</h3>
+              <p>{UI_TEXT.draftRecovery.startBody}</p>
+              <div className="actions">
+                <button type="button" className="secondary" ref={startNewCancelRef} onClick={() => setStartNewConfirming(false)}>
+                  {UI_TEXT.buttons.cancel}
+                </button>
+                <button type="button" className="destructive" onClick={confirmStartNew}>
+                  {UI_TEXT.buttons.clearProject}
+                </button>
+              </div>
             </div>
-          );
-        })}
+          )}
+        </div>
+      </header>
+      <main className="app-shell">
+        <nav className="workspace-nav" aria-label={UI_TEXT.navigationLabel}>
+          <ul>
+            {UI_TEXT.navigation.map((item) => (
+              <li key={item.id}>
+                <a href={`#${item.id}`}>{item.label}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div className="layout">
+      <div className="configuration">
+        <form onSubmit={handleSubmit} noValidate aria-label={UI_TEXT.configurationFormLabel}>
+        <section id="section-project" tabIndex={-1} aria-labelledby="project-heading">
+          <h2 id="project-heading">{UI_TEXT.sections.project}</h2>
+          {PROJECT_TEXT_FIELDS.map(renderTextField)}
+        </section>
+        <section id="section-requirements" tabIndex={-1} aria-labelledby="requirements-heading">
+          <h2 id="requirements-heading">{UI_TEXT.sections.requirements}</h2>
+          {REQUIREMENT_TEXT_FIELDS.map(renderTextField)}
         <RequirementsEditor
           config={config}
           error={errors.requirementsContent}
@@ -1058,6 +1122,9 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
           }
         />
+        </section>
+        <section id="section-technology" tabIndex={-1} aria-labelledby="technology-heading">
+          <h2 id="technology-heading">{UI_TEXT.sections.technology}</h2>
 
         <fieldset>
           <legend>{UI_TEXT.legends.mode}</legend>
@@ -1282,39 +1349,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             {UI_TEXT.assemblyFailed(assemblyError)}
           </p>
         )}
-        <div className="actions">
-          <button
-            type="button"
-            className="secondary"
-            disabled={!persistenceReady || startNewConfirming}
-            onClick={(event) => openStartNew(event.currentTarget)}
-          >
-            {UI_TEXT.buttons.startNewProject}
-          </button>
-        </div>
-        {startNewConfirming && (
-          <div
-            className="confirm"
-            role="region"
-            aria-labelledby="start-new-heading"
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              setStartNewConfirming(false);
-            }}
-          >
-            <h3 id="start-new-heading">{UI_TEXT.draftRecovery.startHeading}</h3>
-            <p>{UI_TEXT.draftRecovery.startBody}</p>
-            <div className="actions">
-              <button type="button" className="secondary" ref={startNewCancelRef} onClick={() => setStartNewConfirming(false)}>
-                {UI_TEXT.buttons.cancel}
-              </button>
-              <button type="button" onClick={confirmStartNew}>
-                {UI_TEXT.buttons.clearProject}
-              </button>
-            </div>
-          </div>
-        )}
+        </section>
         </form>
         <RequirementsAnalysis
           config={config}
@@ -1328,9 +1363,9 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             setConfig((current) => commitPreparedRequirementChange(current, draft, prepared));
           }}
         />
-      </section>
+      </div>
 
-      <section className="output" aria-labelledby="preview-heading">
+      <section id="section-document" className="output" tabIndex={-1} aria-labelledby="preview-heading">
         <h2 id="preview-heading">{UI_TEXT.previewHeading}</h2>
         <p id="preview-note" className="hint">
           {UI_TEXT.hints.preview}
@@ -1415,6 +1450,8 @@ export default function RequirementsBuilder({ templates }: { templates: Template
           />
         </div>
       </section>
+        </div>
+      </main>
     </div>
   );
 }

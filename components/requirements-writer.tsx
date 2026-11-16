@@ -306,7 +306,7 @@ export function RequirementsWriter({
   const withheld = clarifications.filter((item) => !item.authorizedForModel);
 
   return (
-    <section className="analysis" aria-labelledby="writing-heading">
+    <section id="section-writing" className="analysis" tabIndex={-1} aria-labelledby="writing-heading">
       <h2 id="writing-heading">{UI_TEXT.writing.heading}</h2>
       <p className="hint">{UI_TEXT.writing.intro}</p>
       <button type="button" onClick={(event) => requestDraft(event.currentTarget)} disabled={inFlight || interactionBlocked}>

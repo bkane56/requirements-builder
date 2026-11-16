@@ -4,6 +4,21 @@ export const UI_TEXT = {
   configurationHeading: "Configuration",
   configurationFormLabel: "Project configuration",
   previewHeading: "Preview",
+  unnamedProject: "Unnamed project",
+  navigationLabel: "Workspace",
+  sections: {
+    project: "Project",
+    requirements: "Requirements",
+    technology: "Technology and quality",
+  },
+  navigation: [
+    { id: "section-project", label: "Project" },
+    { id: "section-requirements", label: "Requirements" },
+    { id: "section-technology", label: "Technology and quality" },
+    { id: "section-review", label: "AI review" },
+    { id: "section-writing", label: "AI writing" },
+    { id: "section-document", label: "Document" },
+  ],
   fields: {
     projectName: "Project name",
     description: "Short description (optional)",

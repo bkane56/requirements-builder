@@ -240,20 +240,31 @@ describe("control styling", () => {
     expect(valueFor("textarea::placeholder", "opacity")).toBe("1");
   });
 
-  it("leaves the current page width and desktop columns in place", () => {
-    expect(valueFor("main", "max-width")).toBe("1200px");
+  it("caps the workspace and gives the document more width than the configuration", () => {
+    expect(valueFor(".app-frame", "max-width")).toBe("90rem");
+    expect(valuesFor("main", "max-width")).toEqual([]);
+    expect(layoutColumns("min-width: 900px")).toBe("minmax(0, 2fr) minmax(0, 3fr)");
+    expect(layoutColumns("min-width: 1100px")).toBe("minmax(0, 2fr) minmax(0, 3fr)");
+    expect(layoutColumns("max-width: 899px")).toBe("minmax(0, 1fr)");
     const desktop = rules.find(
       (rule) =>
-        selectorParts(rule.selector).includes(".layout") &&
-        rule.conditions.some((condition) => condition.includes("min-width: 960px")),
+        selectorParts(rule.selector).includes(".app-shell") &&
+        rule.conditions.some((condition) => condition.includes("min-width: 1100px")),
     );
-    expect(desktop?.declarations?.get("grid-template-columns")).toBe("minmax(0, 1fr) minmax(0, 1fr)");
+    expect(desktop?.declarations.get("grid-template-columns")).toBe("12rem minmax(0, 1fr)");
   });
 
-  it("does not apply the destructive class in the current components", () => {
-    const componentsDir = path.join(PROJECT_ROOT, "components");
-    const files = fs.readdirSync(componentsDir).filter((file) => file.endsWith(".tsx"));
-    const applied = files.filter((file) => fs.readFileSync(path.join(componentsDir, file), "utf-8").includes("destructive"));
-    expect(applied).toEqual([]);
+  it("lets the configuration file row shrink to the viewport", () => {
+    expect(valueFor("fieldset", "min-width")).toBe("0");
+    expect(valueFor('input[type="file"]', "max-width")).toBe("100%");
+    expect(valueFor(".file-import", "flex-wrap")).toBe("wrap");
   });
 });
+
+function layoutColumns(condition: string): string | undefined {
+  return rules.find(
+    (rule) =>
+      selectorParts(rule.selector).includes(".layout") &&
+      rule.conditions.some((entry) => entry.includes(condition)),
+  )?.declarations.get("grid-template-columns");
+}

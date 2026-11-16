@@ -3350,6 +3350,68 @@ describe("writing session recovery", () => {
   });
 });
 
+describe("workspace shell", () => {
+  it("shows one application heading and the current project name", () => {
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Requirements Builder");
+    expect(screen.getByText(UI_TEXT.unnamedProject)).toBeTruthy();
+    change("Project name", "   ");
+    expect(screen.getByText(UI_TEXT.unnamedProject)).toBeTruthy();
+    change("Project name", "Receipt Tracker");
+    expect(screen.getByText("Receipt Tracker")).toBeTruthy();
+    expect(screen.queryByText(UI_TEXT.unnamedProject)).toBeNull();
+  });
+
+  it("keeps every section mounted and links each one directly", () => {
+    expect(document.querySelectorAll("form")).toHaveLength(1);
+    expect(screen.getByRole("navigation", { name: UI_TEXT.navigationLabel })).toBeTruthy();
+    for (const item of UI_TEXT.navigation) {
+      const link = screen.getByRole("link", { name: item.label });
+      expect(link.getAttribute("href")).toBe(`#${item.id}`);
+      const section = document.getElementById(item.id) as HTMLElement;
+      expect(section.tagName).toBe("SECTION");
+      expect(section.tabIndex).toBe(-1);
+      expect(section.hidden).toBe(false);
+    }
+    expect(screen.getByLabelText("Project name").id).toBe("field-projectName");
+    expect(screen.getByLabelText("Business requirements").id).toBe("field-businessRequirements");
+    expect(screen.getByRole("heading", { name: UI_TEXT.analysis.heading })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: UI_TEXT.writing.heading })).toBeTruthy();
+    expect(document.getElementById("section-review")?.contains(document.getElementById("section-writing"))).toBe(false);
+  });
+
+  it("leaves form values and AI sections mounted when section links are used", () => {
+    change("Project name", "Receipt Tracker");
+    change("Business requirements", "Users can upload a receipt.");
+    for (const item of UI_TEXT.navigation) {
+      fireEvent.click(screen.getByRole("link", { name: item.label }));
+      expect(field("Project name").value).toBe("Receipt Tracker");
+      expect(field("Business requirements").value).toBe("Users can upload a receipt.");
+      expect(document.getElementById("section-review")).toBeTruthy();
+      expect(document.getElementById("section-writing")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: UI_TEXT.analysis.heading })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: UI_TEXT.writing.heading })).toBeTruthy();
+    }
+  });
+
+  it("does not report a saved or pending draft", () => {
+    expect(screen.queryByText(/^Saved$/)).toBeNull();
+    expect(screen.queryByText(/^Pending$/)).toBeNull();
+  });
+
+  it("uses the destructive style only on the clear-project confirmation", () => {
+    const start = screen.getByRole("button", { name: UI_TEXT.buttons.startNewProject });
+    expect(start.classList.contains("destructive")).toBe(false);
+    fireEvent.click(start);
+    const confirmation = screen.getByRole("region", { name: UI_TEXT.draftRecovery.startHeading });
+    expect(start.compareDocumentPosition(confirmation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const clear = within(confirmation).getByRole("button", { name: UI_TEXT.buttons.clearProject });
+    expect(clear.classList.contains("destructive")).toBe(true);
+    expect(document.querySelectorAll("button.destructive")).toHaveLength(1);
+    expect(document.activeElement).toBe(within(confirmation).getByRole("button", { name: UI_TEXT.buttons.cancel }));
+  });
+});
+
 function storageWithDraftFailures(storage: Storage, failures: { remove: boolean; write: boolean }): Storage {
   return new Proxy(storage, {
     get(target, prop, receiver) {

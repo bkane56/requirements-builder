@@ -353,7 +353,7 @@ export function RequirementsAnalysis({
 
   return (
     <>
-    <section className="analysis" aria-labelledby="analysis-heading">
+    <section id="section-review" className="analysis" tabIndex={-1} aria-labelledby="analysis-heading">
       <h2 id="analysis-heading">{UI_TEXT.analysis.heading}</h2>
       <p className="hint">{UI_TEXT.analysis.intro}</p>
       <button type="button" onClick={(event) => requestAnalysis(event.currentTarget)} disabled={inFlight || confirming || confirmingRerun}>
