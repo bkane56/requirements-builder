@@ -1,6 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { evaluateAdvisories } from "@/lib/advisories";
 import {
   applyRequirementChange,
@@ -94,6 +105,7 @@ import { defaultToolchain, replaceToolchain, type ToolchainPatch } from "@/lib/t
 import { defaultUiFramework, replaceUiFramework, type UiFrameworkPatch } from "@/lib/ui-framework";
 import { UI_TEXT } from "@/lib/ui-text";
 import { hasErrors, requirementsItemErrors, validateConfig, type ValidationErrors } from "@/lib/validate-config";
+import { MarkdownPreview } from "./markdown-preview";
 import { RequirementsEditor } from "./requirements-editor";
 import { RequirementsAnalysis } from "./requirements-analysis";
 
@@ -229,20 +241,109 @@ type PendingAction = {
 
 const fieldId = (name: keyof ValidationErrors | keyof ProjectConfig) => `field-${name}`;
 
-function focusInvalid(key: keyof ValidationErrors) {
+const DISCLOSURES = {
+  project: "disclosure-project",
+  requirements: "disclosure-requirements",
+  technology: "disclosure-technology",
+  api: "disclosure-api",
+  testing: "disclosure-testing",
+  configuration: "disclosure-configuration",
+} as const;
+
+type DisclosureKey = keyof typeof DISCLOSURES;
+
+const DEFAULT_DISCLOSURE_OPEN: Record<DisclosureKey, boolean> = {
+  project: true,
+  requirements: true,
+  technology: true,
+  api: true,
+  testing: true,
+  configuration: true,
+};
+
+const DISCLOSURE_KEY_BY_ID = Object.fromEntries(
+  (Object.entries(DISCLOSURES) as [DisclosureKey, string][]).map(([key, id]) => [id, key]),
+) as Record<string, DisclosureKey>;
+
+function invalidControl(key: keyof ValidationErrors): HTMLElement | null {
   if (key === "requirementsContent") {
     const invalid = document.querySelector<HTMLElement>(`#${fieldId(key)} [aria-invalid="true"]`);
-    (invalid ?? document.getElementById(fieldId(key)))?.focus();
-    return;
+    return invalid ?? document.getElementById(fieldId(key));
   }
   if (key === "uiLanguages") {
     const checkbox = document.querySelector<HTMLInputElement>(`#${fieldId("uiLanguages")} input[type="checkbox"]`);
-    if (checkbox) {
-      checkbox.focus();
-      return;
-    }
+    if (checkbox) return checkbox;
   }
-  document.getElementById(fieldId(key))?.focus();
+  return document.getElementById(fieldId(key));
+}
+
+function focusInvalid(key: keyof ValidationErrors, reveal: (ids: string[]) => void) {
+  const target = invalidControl(key);
+  if (!target) return;
+  const ids: string[] = [];
+  let details = target.closest("details");
+  while (details) {
+    details.open = true;
+    if (details.id) ids.push(details.id);
+    details = details.parentElement?.closest("details") ?? null;
+  }
+  if (ids.length > 0) reveal(ids);
+  target.focus();
+}
+
+function Disclosure({
+  id,
+  open,
+  onOpenChange,
+  summary,
+  children,
+}: {
+  id: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  summary: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      id={id}
+      className="disclosure"
+      open={open}
+      onToggle={(event) => {
+        const next = event.currentTarget.open;
+        if (next !== open) onOpenChange(next);
+      }}
+    >
+      <summary>{summary}</summary>
+      <div className="disclosure-body">{children}</div>
+    </details>
+  );
+}
+
+function ApiModulesDisclosure({
+  openRef,
+  children,
+}: {
+  openRef: RefObject<(open: boolean) => void>;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  openRef.current = setOpen;
+  useEffect(() => {
+    return () => {
+      openRef.current = () => {};
+    };
+  }, [openRef]);
+  return (
+    <Disclosure
+      id={DISCLOSURES.api}
+      open={open}
+      onOpenChange={setOpen}
+      summary={UI_TEXT.disclosures.api}
+    >
+      {children}
+    </Disclosure>
+  );
 }
 
 function describedBy(...ids: (string | false | undefined)[]) {
@@ -690,6 +791,12 @@ export default function RequirementsBuilder({ templates }: { templates: Template
   const [writing, setWriting] = useState<RecoveredWriting>(null);
   const [startNewConfirming, setStartNewConfirming] = useState(false);
   const [resetStorageFailed, setResetStorageFailed] = useState(false);
+  const [openDisclosures, setOpenDisclosures] = useState(DEFAULT_DISCLOSURE_OPEN);
+  const [documentMode, setDocumentMode] = useState<"edit" | "preview">("edit");
+  const markdownRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const modeFocus = useRef<"edit" | "preview" | null>(null);
+  const apiDisclosureOpen = useRef<(open: boolean) => void>(() => {});
   const integrationAdvisory = evaluateAdvisories(config).find((advisory) => advisory.field === "integrationTests");
 
   const update = <K extends keyof ProjectConfig>(key: K, value: ProjectConfig[K]) =>
@@ -767,7 +874,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     if (hasErrors(nextErrors)) {
       setPending(null);
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
-      if (firstInvalid) focusInvalid(firstInvalid);
+      if (firstInvalid) focusInvalid(firstInvalid, revealDisclosures);
       return;
     }
 
@@ -904,8 +1011,27 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     });
     if (hasErrors(nextErrors)) {
       const firstInvalid = ERROR_FOCUS_ORDER.find((key) => nextErrors[key]);
-      if (firstInvalid) focusInvalid(firstInvalid);
+      if (firstInvalid) focusInvalid(firstInvalid, revealDisclosures);
     }
+  }
+
+  function revealDisclosures(ids: string[]) {
+    if (ids.includes(DISCLOSURES.api)) apiDisclosureOpen.current(true);
+    setOpenDisclosures((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const id of ids) {
+        const key = DISCLOSURE_KEY_BY_ID[id];
+        if (!key || key === "api" || next[key]) continue;
+        next[key] = true;
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }
+
+  function setDisclosure(key: DisclosureKey, open: boolean) {
+    setOpenDisclosures((current) => (current[key] === open ? current : { ...current, [key]: open }));
   }
 
   const runtimes = allowedRuntimes(config);
@@ -951,6 +1077,19 @@ export default function RequirementsBuilder({ templates }: { templates: Template
     if (!persistenceReady) return;
     schedule(toRecoveryDraft(config, markdown, assembled, analysis, writing), generation);
   }, [persistenceReady, schedule, config, markdown, assembled, analysis, writing, generation]);
+
+  function selectDocumentMode(mode: "edit" | "preview") {
+    if (mode === documentMode) return;
+    modeFocus.current = mode;
+    setDocumentMode(mode);
+  }
+
+  useLayoutEffect(() => {
+    if (modeFocus.current !== documentMode) return;
+    modeFocus.current = null;
+    if (documentMode === "preview") previewRef.current?.focus();
+    else markdownRef.current?.focus();
+  }, [documentMode]);
 
   useEffect(() => {
     if (!startNewConfirming) return;
@@ -1108,24 +1247,41 @@ export default function RequirementsBuilder({ templates }: { templates: Template
       <div className="configuration">
         <form onSubmit={handleSubmit} noValidate aria-label={UI_TEXT.configurationFormLabel}>
         <section id="section-project" tabIndex={-1} aria-labelledby="project-heading">
-          <h2 id="project-heading">{UI_TEXT.sections.project}</h2>
-          {PROJECT_TEXT_FIELDS.map(renderTextField)}
+          <Disclosure
+            id={DISCLOSURES.project}
+            open={openDisclosures.project}
+            onOpenChange={(open) => setDisclosure("project", open)}
+            summary={<h2 id="project-heading">{UI_TEXT.sections.project}</h2>}
+          >
+            {PROJECT_TEXT_FIELDS.map(renderTextField)}
+          </Disclosure>
         </section>
         <section id="section-requirements" tabIndex={-1} aria-labelledby="requirements-heading">
-          <h2 id="requirements-heading">{UI_TEXT.sections.requirements}</h2>
-          {REQUIREMENT_TEXT_FIELDS.map(renderTextField)}
-        <RequirementsEditor
-          config={config}
-          error={errors.requirementsContent}
-          itemErrors={requirementsItemErrors(config)}
-          onChange={(content: RequirementsContent) =>
-            setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
-          }
-        />
+          <Disclosure
+            id={DISCLOSURES.requirements}
+            open={openDisclosures.requirements}
+            onOpenChange={(open) => setDisclosure("requirements", open)}
+            summary={<h2 id="requirements-heading">{UI_TEXT.sections.requirements}</h2>}
+          >
+            {REQUIREMENT_TEXT_FIELDS.map(renderTextField)}
+            <RequirementsEditor
+              config={config}
+              error={errors.requirementsContent}
+              itemErrors={requirementsItemErrors(config)}
+              onChange={(content: RequirementsContent) =>
+                setConfig((current) => normalizeSelections({ ...current, requirementsContent: content }))
+              }
+            />
+          </Disclosure>
         </section>
         <section id="section-technology" tabIndex={-1} aria-labelledby="technology-heading">
           <h2 id="technology-heading">{UI_TEXT.sections.technology}</h2>
-
+          <Disclosure
+            id={DISCLOSURES.technology}
+            open={openDisclosures.technology}
+            onOpenChange={(open) => setDisclosure("technology", open)}
+            summary={UI_TEXT.disclosures.technology}
+          >
         <fieldset>
           <legend>{UI_TEXT.legends.mode}</legend>
           {MODES.map((mode) => (
@@ -1229,8 +1385,10 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             </>
           )}
         </fieldset>
+          </Disclosure>
 
         {config.exposesApi && (
+          <ApiModulesDisclosure openRef={apiDisclosureOpen}>
           <fieldset
             id={fieldId("modules")}
             tabIndex={-1}
@@ -1251,8 +1409,15 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             ))}
             <ErrorText name="modules" error={errors.modules} />
           </fieldset>
+          </ApiModulesDisclosure>
         )}
 
+        <Disclosure
+          id={DISCLOSURES.testing}
+          open={openDisclosures.testing}
+          onOpenChange={(open) => setDisclosure("testing", open)}
+          summary={UI_TEXT.disclosures.testing}
+        >
         <fieldset>
           <legend>{UI_TEXT.legends.testing}</legend>
           <p className="hint">{UI_TEXT.hints.testingAlwaysIncluded}</p>
@@ -1324,7 +1489,14 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             </>
           )}
         </fieldset>
+        </Disclosure>
 
+        <Disclosure
+          id={DISCLOSURES.configuration}
+          open={openDisclosures.configuration}
+          onOpenChange={(open) => setDisclosure("configuration", open)}
+          summary={UI_TEXT.disclosures.configuration}
+        >
         <fieldset>
           <legend>{UI_TEXT.legends.configurationFile}</legend>
           <div className="actions">
@@ -1342,6 +1514,7 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             </p>
           )}
         </fieldset>
+        </Disclosure>
 
         <button type="submit">{assembled ? UI_TEXT.buttons.reassemble : UI_TEXT.buttons.assembleDraft}</button>
         {assemblyError && (
@@ -1370,6 +1543,50 @@ export default function RequirementsBuilder({ templates }: { templates: Template
         <p id="preview-note" className="hint">
           {UI_TEXT.hints.preview}
         </p>
+        {!hasDocument && (
+          <p id="document-empty" className="hint">
+            {UI_TEXT.placeholder.markdown}
+          </p>
+        )}
+        <div className="document-toolbar">
+          <div role="group" aria-label={UI_TEXT.document.viewGroup}>
+            <button
+              type="button"
+              className="secondary"
+              aria-pressed={documentMode === "edit"}
+              onClick={() => selectDocumentMode("edit")}
+            >
+              {UI_TEXT.document.edit}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              aria-pressed={documentMode === "preview"}
+              onClick={() => selectDocumentMode("preview")}
+            >
+              {UI_TEXT.document.rendered}
+            </button>
+          </div>
+          <div className="actions">
+            <button type="button" className="secondary" onClick={copyMarkdown} disabled={!hasDocument}>
+              {UI_TEXT.buttons.copyMarkdown}
+            </button>
+            <button type="button" className="secondary" onClick={downloadMarkdown} disabled={!hasDocument}>
+              {UI_TEXT.buttons.downloadMarkdown}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                if (!canRestore) return;
+                setPending({ kind: "restore", config, markdown });
+              }}
+              disabled={!canRestore}
+            >
+              {UI_TEXT.buttons.restoreGeneratedDraft}
+            </button>
+          </div>
+        </div>
         {stale && (
           <p id="stale-notice" role="status" className="notice">
             {UI_TEXT.notices.stale}
@@ -1380,25 +1597,6 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             {UI_TEXT.notices.edited}
           </p>
         )}
-        <div className="actions">
-          <button type="button" className="secondary" onClick={copyMarkdown} disabled={!hasDocument}>
-            {UI_TEXT.buttons.copyMarkdown}
-          </button>
-          <button type="button" className="secondary" onClick={downloadMarkdown} disabled={!hasDocument}>
-            {UI_TEXT.buttons.downloadMarkdown}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              if (!canRestore) return;
-              setPending({ kind: "restore", config, markdown });
-            }}
-            disabled={!canRestore}
-          >
-            {UI_TEXT.buttons.restoreGeneratedDraft}
-          </button>
-        </div>
         {copyStatus === "copied" && <p role="status" className="status">{UI_TEXT.copy.success}</p>}
         {copyStatus === "failed" && (
           <p role="alert" className="error">{UI_TEXT.copy.failure}</p>
@@ -1432,15 +1630,16 @@ export default function RequirementsBuilder({ templates }: { templates: Template
             </div>
           </div>
         )}
-        <div className="field">
+        <div className="field" hidden={documentMode !== "edit"}>
           <label htmlFor="markdown-preview">{UI_TEXT.fields.markdownDocument}</label>
           <textarea
             id="markdown-preview"
+            ref={markdownRef}
             className="preview"
             readOnly={assembled === null}
             value={markdown}
             placeholder={UI_TEXT.placeholder.markdown}
-            aria-describedby={describedBy("preview-note", stale && "stale-notice", edited && "edited-notice")}
+            aria-describedby={describedBy("preview-note", !hasDocument && "document-empty", stale && "stale-notice", edited && "edited-notice")}
             onChange={(event) => {
               if (!assembled) return;
               setMarkdown(event.target.value);
@@ -1448,6 +1647,18 @@ export default function RequirementsBuilder({ templates }: { templates: Template
               setCopyStatus("idle");
             }}
           />
+        </div>
+        <div
+          id="markdown-rendered"
+          ref={previewRef}
+          role="region"
+          className="markdown-preview"
+          tabIndex={-1}
+          hidden={documentMode !== "preview"}
+          aria-label={UI_TEXT.document.rendered}
+          aria-describedby={describedBy("preview-note", !hasDocument && "document-empty", stale && "stale-notice", edited && "edited-notice")}
+        >
+          {hasDocument ? <MarkdownPreview markdown={markdown} /> : null}
         </div>
       </section>
         </div>

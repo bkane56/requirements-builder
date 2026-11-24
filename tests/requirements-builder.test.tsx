@@ -3412,6 +3412,203 @@ describe("workspace shell", () => {
   });
 });
 
+describe("configuration disclosures", () => {
+  const summaryNames = [
+    UI_TEXT.sections.project,
+    UI_TEXT.sections.requirements,
+    UI_TEXT.disclosures.technology,
+    UI_TEXT.disclosures.testing,
+    UI_TEXT.disclosures.configuration,
+  ];
+
+  function disclosure(name: string) {
+    const summary = [...document.querySelectorAll("summary")].find((element) => element.textContent === name);
+    const details = summary?.closest("details");
+    if (!(details instanceof HTMLDetailsElement)) throw new Error(`Missing disclosure for ${name}`);
+    return details;
+  }
+
+  it("renders the configuration groups open", () => {
+    expect(document.querySelectorAll("details.disclosure")).toHaveLength(summaryNames.length);
+    for (const name of summaryNames) {
+      const group = disclosure(name);
+      expect(group.open).toBe(true);
+      expect(group.querySelector("summary")?.getAttribute("aria-expanded")).toBeNull();
+    }
+    expect([...document.querySelectorAll("summary")].some((element) => element.textContent === UI_TEXT.disclosures.api)).toBe(false);
+    expect(document.getElementById("section-technology")?.querySelector("h2")?.textContent).toBe(UI_TEXT.sections.technology);
+    expect(screen.getByRole("button", { name: UI_TEXT.buttons.assembleDraft }).closest("details")).toBeNull();
+
+    fireEvent.click(field("Includes an HTTP API"));
+    const api = disclosure(UI_TEXT.disclosures.api);
+    expect(api.open).toBe(true);
+    expect(api.querySelector("#field-modules")).toBeTruthy();
+    fireEvent.click(api.querySelector("summary")!);
+    expect(api.open).toBe(false);
+    fireEvent.click(field("Includes an HTTP API"));
+    expect(document.getElementById("disclosure-api")).toBeNull();
+    fireEvent.click(field("Includes an HTTP API"));
+    expect(disclosure(UI_TEXT.disclosures.api).open).toBe(true);
+  });
+
+  it("keeps field values and structured requirements mounted while collapsed", () => {
+    change("Project name", "Receipt Tracker");
+    change("Business requirements", "Show the people list.");
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy current text" }));
+    const project = disclosure(UI_TEXT.sections.project);
+    const requirements = disclosure(UI_TEXT.sections.requirements);
+    const projectName = document.getElementById("field-projectName");
+    const requirement = document.getElementById("field-FR-001-text");
+    const review = document.getElementById("section-review");
+
+    fireEvent.click(project.querySelector("summary")!);
+    fireEvent.click(requirements.querySelector("summary")!);
+    expect(project.open).toBe(false);
+    expect(requirements.open).toBe(false);
+    expect(document.getElementById("field-projectName")).toBe(projectName);
+    expect(document.getElementById("field-FR-001-text")).toBe(requirement);
+    expect((projectName as HTMLInputElement).value).toBe("Receipt Tracker");
+    expect((requirement as HTMLTextAreaElement).value).toBe("Show the people list.");
+    expect(document.getElementById("section-review")).toBe(review);
+    expect(document.getElementById("section-writing")).toBeTruthy();
+
+    fireEvent.click(project.querySelector("summary")!);
+    fireEvent.click(requirements.querySelector("summary")!);
+    expect(field("Project name").value).toBe("Receipt Tracker");
+    expect(field("FR-001 text").value).toBe("Show the people list.");
+    expect(screen.getByRole("heading", { name: UI_TEXT.analysis.heading })).toBeTruthy();
+  });
+
+  it("opens a closed testing group and focuses the invalid coverage field", () => {
+    fillRequired();
+    change("Line coverage target (%)", "150");
+    const testing = disclosure(UI_TEXT.disclosures.testing);
+    fireEvent.click(testing.querySelector("summary")!);
+    expect(testing.open).toBe(false);
+
+    assemble();
+
+    const line = document.getElementById("field-linePercent");
+    expect(testing.open).toBe(true);
+    expect(document.activeElement).toBe(line);
+    expect(line?.getAttribute("aria-invalid")).toBe("true");
+    expect(line?.getAttribute("aria-describedby")).toBe("field-linePercent-error");
+    expect(screen.getByText("Line coverage target must be a whole number from 0 to 100.")).toBeTruthy();
+  });
+
+  it("opens a closed requirements group and focuses the invalid structured field", () => {
+    fillRequired("Show the people list.");
+    fireEvent.click(screen.getByRole("button", { name: "Use structured requirements" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy current text" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add functional requirement" }));
+    change("FR-002 status", "proposed");
+    assemble();
+    change("FR-002 status", "confirmed");
+    const requirements = disclosure(UI_TEXT.sections.requirements);
+    fireEvent.click(requirements.querySelector("summary")!);
+    expect(requirements.open).toBe(false);
+
+    assemble();
+
+    expect(requirements.open).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById("field-FR-002-text"));
+    expect(screen.getAllByText("FR-002 needs text.").length).toBeGreaterThan(0);
+    expect(preview()).not.toContain("**FR-002.**");
+  });
+
+  it("keeps section navigation usable while a group is collapsed", () => {
+    const requirements = disclosure(UI_TEXT.sections.requirements);
+    fireEvent.click(requirements.querySelector("summary")!);
+    const section = document.getElementById("section-requirements") as HTMLElement;
+    fireEvent.click(screen.getByRole("link", { name: UI_TEXT.sections.requirements }));
+
+    expect(requirements.open).toBe(false);
+    expect(section.hidden).toBe(false);
+    expect(section.tabIndex).toBe(-1);
+    expect(requirements.contains(section)).toBe(false);
+    section.focus();
+    expect(document.activeElement).toBe(section);
+    expect(requirements.open).toBe(false);
+    expect(field("Business requirements").id).toBe("field-businessRequirements");
+  });
+});
+
+describe("document workspace", () => {
+  const markdownValue = () => (document.getElementById("markdown-preview") as HTMLTextAreaElement).value;
+
+  it("shows the document actions and empty guidance before assembly", () => {
+    const toolbar = document.querySelector(".document-toolbar");
+    expect(toolbar).toBeTruthy();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: UI_TEXT.buttons.copyMarkdown })).toBeTruthy();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: UI_TEXT.buttons.downloadMarkdown })).toBeTruthy();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: UI_TEXT.buttons.restoreGeneratedDraft })).toBeTruthy();
+    expect(screen.getByText(UI_TEXT.placeholder.markdown).id).toBe("document-empty");
+    expect(screen.getByRole("button", { name: UI_TEXT.document.edit }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: UI_TEXT.document.rendered }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.document.edit }));
+    expect(document.activeElement).not.toBe(document.getElementById("markdown-preview"));
+  });
+
+  it("shows manual edits in preview without changing the markdown", () => {
+    fillRequired();
+    assemble();
+    const edited = `${preview()}Manual note.\n`;
+    editDocument(edited);
+    expect(screen.getByText(EDITED_NOTICE).id).toBe("edited-notice");
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.document.rendered }));
+
+    const rendered = screen.getByRole("region", { name: UI_TEXT.document.rendered });
+    expect(document.activeElement).toBe(rendered);
+    expect(rendered.textContent).toContain("Manual note.");
+    expect(markdownValue()).toBe(edited);
+    expect(screen.getByText(EDITED_NOTICE)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.document.edit }));
+    expect(document.activeElement).toBe(document.getElementById("markdown-preview"));
+    expect(preview()).toBe(edited);
+  });
+
+  it("copies and downloads the same markdown from preview", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    fillRequired();
+    assemble();
+    const edited = `${preview()}Keep this.\n`;
+    editDocument(edited);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.document.rendered }));
+
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.copyMarkdown }));
+    expect(writeText).toHaveBeenCalledWith(edited);
+
+    let blob: Blob | undefined;
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      blob = value as Blob;
+      return "blob:preview";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.buttons.downloadMarkdown }));
+    expect(await blob?.text()).toBe(edited);
+  });
+
+  it("returns to edit mode after refresh and keeps the markdown", () => {
+    fillRequired();
+    assemble();
+    const edited = `${preview()}Saved note\n`;
+    editDocument(edited);
+    fireEvent.click(screen.getByRole("button", { name: UI_TEXT.document.rendered }));
+    expect(screen.getByRole("region", { name: UI_TEXT.document.rendered })).toBeTruthy();
+
+    reloadBuilder();
+
+    expect(preview()).toBe(edited);
+    expect(screen.getByRole("button", { name: UI_TEXT.document.edit }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("region", { name: UI_TEXT.document.rendered })).toBeNull();
+  });
+});
+
 function storageWithDraftFailures(storage: Storage, failures: { remove: boolean; write: boolean }): Storage {
   return new Proxy(storage, {
     get(target, prop, receiver) {

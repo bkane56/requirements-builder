@@ -11,6 +11,12 @@ export const UI_TEXT = {
     requirements: "Requirements",
     technology: "Technology and quality",
   },
+  disclosures: {
+    technology: "Technology and frameworks",
+    api: "API and optional modules",
+    testing: "Testing and quality settings",
+    configuration: "Configuration import/export",
+  },
   navigation: [
     { id: "section-project", label: "Project" },
     { id: "section-requirements", label: "Requirements" },
@@ -40,6 +46,11 @@ export const UI_TEXT = {
     lineCoverage: "Line coverage target (%)",
     branchCoverage: "Branch coverage target (%)",
     markdownDocument: "Markdown document",
+  },
+  document: {
+    viewGroup: "Document view",
+    edit: "Edit Markdown",
+    rendered: "Rendered preview",
   },
   legends: {
     mode: "Mode",
